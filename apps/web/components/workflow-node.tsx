@@ -1,21 +1,25 @@
-
 'use client';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 import { Check, AlertCircle, LoaderCircle } from 'lucide-react';
-import { catalog, type WorkflowNode } from '@eimax/workflow-schema';
+import { catalog, triggerTypes, type WorkflowNode } from '@eimax/workflow-schema';
 import { blockIcons } from './icons';
 export type FlowNode = Node<{ block: WorkflowNode; execution?: string; invalid?: boolean }, 'workflow'>;
 export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
   const node = data.block;
   const meta = catalog[node.type];
   const Icon = blockIcons[node.type];
-  const trigger = ['lead.created', 'webhook.received'].includes(node.type);
+  const trigger = triggerTypes.includes(node.type);
   const c = node.config;
-  const summary =
-    node.type === 'condition'
+  const summary = node.type.startsWith('whatsapp.')
+    ? trigger
+      ? 'Evento autenticado da conta'
+      : 'Conta e consentimento obrigatórios'
+    : node.type === 'condition'
       ? `${({ budget: 'Orçamento', score: 'Pontuação', source: 'Origem', company: 'Empresa', email: 'E-mail' } as Record<string, string>)[String(c.field)] ?? 'Campo'} ${({ gte: '≥', gt: '>', lte: '≤', lt: '<', eq: '=', contains: 'contém' } as Record<string, string>)[String(c.operator)] ?? ''} ${c.value ?? '…'}`
       : node.type === 'sdr.assign'
-        ? String(c.team || 'Selecione uma equipe')
+        ? String(c.team).startsWith('membership:')
+          ? 'Responsável selecionado'
+          : 'Selecione um responsável'
         : node.type === 'tag.add'
           ? String(c.tag || 'Defina uma etiqueta')
           : node.type === 'wait'

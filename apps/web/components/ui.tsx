@@ -1,6 +1,6 @@
-
 'use client';
-import { useEffect, useRef, useId, type ReactNode } from 'react';
+import { useEffect, useRef, useId, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X, LoaderCircle } from 'lucide-react';
 export { Button } from '@eimax/shared-ui';
 export function Dialog({
@@ -15,10 +15,13 @@ export function Dialog({
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   const id = useId();
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {
+    if (!mounted) return;
     const previous = document.activeElement as HTMLElement | null;
     const focusables = () => [
       ...(ref.current?.querySelectorAll<HTMLElement>(
@@ -46,8 +49,9 @@ export function Dialog({
       document.removeEventListener('keydown', key);
       previous?.focus();
     };
-  }, []);
-  return (
+  }, [mounted]);
+  if (!mounted) return null;
+  return createPortal(
     <div
       className="dialog-backdrop"
       onMouseDown={(e) => {
@@ -69,7 +73,8 @@ export function Dialog({
         </div>
         <div className="dialog-content">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 export function Loading({ message = 'Preparando seu espaço de trabalho…' }: { message?: string }) {

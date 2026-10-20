@@ -298,7 +298,9 @@ export function RunList() {
     <main className="listing-page">
       <div className="listing-heading">
         <div>
-          <div className="eyebrow">{tab === 'real' ? 'Operação em tempo real' : 'Cada passo, com clareza'}</div>
+          <div className="eyebrow">
+            {tab === 'real' ? 'Operação em tempo real' : 'Cada passo, com clareza'}
+          </div>
           <h1>{tab === 'real' ? 'Histórico de execuções reais' : 'Histórico de simulações'}</h1>
           <p>
             {tab === 'real'
@@ -350,13 +352,11 @@ export function RunList() {
                   <Zap size={18} />
                 </span>
                 <div>
-                  <h3>
-                    {row.leadSummary ? `${row.leadSummary.name} (${row.leadSummary.company})` : row.id}
-                  </h3>
+                  <h3>{row.leadSummary ? `${row.leadSummary.name} (${row.leadSummary.company})` : row.id}</h3>
                   <p>
                     {new Date(row.createdAt).toLocaleString('pt-BR')} ·{' '}
-                    {row.steps.filter((s) => s.status === 'success' || s.status === 'COMPLETED').length} etapas
-                    concluídas ·{' '}
+                    {row.steps.filter((s) => s.status === 'success' || s.status === 'COMPLETED').length}{' '}
+                    etapas concluídas ·{' '}
                     {row.leadSummary?.assignedTo ? `SDR: ${row.leadSummary.assignedTo}` : 'Sem atribuição'}
                   </p>
                 </div>
@@ -437,13 +437,56 @@ export function LeadList() {
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [sourceFilter, setSourceFilter] = useState('ALL');
+  const [ownerFilter, setOwnerFilter] = useState('ALL');
+  const [members, setMembers] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [canEdit, setCanEdit] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [selectedLead, setSelectedLead] = useState<LeadRecord>();
 
   useEffect(() => {
+    api<typeof members>('/memberships')
+      .then(setMembers)
+      .catch((e) => setError(e.message));
+    api<{ role: string }>('/me')
+      .then((me) => setCanEdit(['owner', 'editor'].includes(me.role)))
+      .catch((e) => setError(e.message));
     api<LeadRecord[]>('/leads')
       .then(setLeads)
       .catch((e) => setError(e.message));
   }, []);
+
+  async function openLead(lead: LeadRecord) {
+    try {
+      setSelectedLead(await api<LeadRecord>(`/leads/${lead.id}`));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function saveLead() {
+    if (!selectedLead) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api(`/leads/${selectedLead.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          status: selectedLead.status,
+          tags: selectedLead.tags.filter(Boolean),
+          assignedMembershipId: selectedLead.assignedMembership?.id ?? null,
+          whatsappConsent: selectedLead.whatsappConsent,
+          ...(selectedLead.phone ? { phone: selectedLead.phone } : {}),
+        }),
+      });
+      const detail = await api<LeadRecord>(`/leads/${selectedLead.id}`);
+      setSelectedLead(detail);
+      setLeads((rows) => rows?.map((row) => (row.id === detail.id ? { ...row, ...detail } : row)));
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }
 
   if (!leads && !error) return <Loading />;
 
@@ -454,7 +497,11 @@ export function LeadList() {
         l.company.toLowerCase().includes(search.toLowerCase()) ||
         l.email.toLowerCase().includes(search.toLowerCase());
       const matchesStatus = statusFilter === 'ALL' || l.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesSource = sourceFilter === 'ALL' || l.source === sourceFilter;
+      const matchesOwner =
+        ownerFilter === 'ALL' ||
+        (ownerFilter === 'NONE' ? !l.assignedMembership : l.assignedMembership?.id === ownerFilter);
+      return matchesSearch && matchesStatus && matchesSource && matchesOwner;
     }) ?? [];
 
   return (
@@ -470,7 +517,9 @@ export function LeadList() {
         </Link>
       </div>
 
-      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px' }}>
+      <div
+        style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center', marginBottom: '20px' }}
+      >
         <div className="listing-search" style={{ flex: 1, marginBottom: 0 }}>
           <Search size={16} />
           <input
@@ -481,6 +530,7 @@ export function LeadList() {
           />
         </div>
         <select
+          aria-label="Filtrar por status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           style={{
@@ -496,6 +546,31 @@ export function LeadList() {
           <option value="QUALIFIED">Qualificados</option>
           <option value="DISQUALIFIED">Desqualificados</option>
           <option value="NEW">Novos</option>
+        </select>
+        <select
+          aria-label="Filtrar por origem"
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+        >
+          <option value="ALL">Todas as origens</option>
+          {[...new Set(leads?.map((l) => l.source))].map((source) => (
+            <option value={source} key={source}>
+              {source}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Filtrar por responsável"
+          value={ownerFilter}
+          onChange={(e) => setOwnerFilter(e.target.value)}
+        >
+          <option value="ALL">Todos os responsáveis</option>
+          <option value="NONE">Sem responsável</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {member.displayName}
+            </option>
+          ))}
         </select>
       </div>
 
@@ -530,7 +605,11 @@ export function LeadList() {
                     <div style={{ fontSize: '11px', color: '#64748b' }}>{lead.company}</div>
                   </td>
                   <td>{lead.email}</td>
-                  <td>R$ {lead.budget.toLocaleString('pt-BR')}</td>
+                  <td>
+                    {lead.source === 'whatsapp' && !lead.budget
+                      ? 'Não informado'
+                      : `R$ ${lead.budget.toLocaleString('pt-BR')}`}
+                  </td>
                   <td>
                     <span
                       style={{
@@ -542,21 +621,21 @@ export function LeadList() {
                           lead.status === 'QUALIFIED'
                             ? '#dcfce7'
                             : lead.status === 'DISQUALIFIED'
-                            ? '#fee2e2'
-                            : '#fef3c7',
+                              ? '#fee2e2'
+                              : '#fef3c7',
                         color:
                           lead.status === 'QUALIFIED'
                             ? '#166534'
                             : lead.status === 'DISQUALIFIED'
-                            ? '#991b1b'
-                            : '#92400e',
+                              ? '#991b1b'
+                              : '#92400e',
                       }}
                     >
                       {lead.status === 'QUALIFIED'
                         ? 'Qualificado'
                         : lead.status === 'DISQUALIFIED'
-                        ? 'Desqualificado'
-                        : lead.status}
+                          ? 'Desqualificado'
+                          : lead.status}
                     </span>
                   </td>
                   <td>
@@ -587,7 +666,7 @@ export function LeadList() {
                     })}
                   </td>
                   <td>
-                    <Button onClick={() => setSelectedLead(lead)}>Ver detalhes</Button>
+                    <Button onClick={() => openLead(lead)}>Ver detalhes</Button>
                   </td>
                 </tr>
               ))}
@@ -606,6 +685,11 @@ export function LeadList() {
 
       {selectedLead && (
         <Dialog title={`Lead · ${selectedLead.name}`} wide onClose={() => setSelectedLead(undefined)}>
+          {error && (
+            <div className="validation-errors" role="alert">
+              {error}
+            </div>
+          )}
           <div style={{ padding: '8px 0', fontSize: '14px', lineHeight: 1.6 }}>
             <div
               style={{
@@ -660,6 +744,95 @@ export function LeadList() {
                   ))}
                 </div>
               </div>
+            )}
+
+            <fieldset disabled={!canEdit || saving} className="inspector-fields">
+              <label className="field">
+                Responsável
+                <select
+                  value={selectedLead.assignedMembership?.id ?? ''}
+                  onChange={(e) =>
+                    setSelectedLead({
+                      ...selectedLead,
+                      assignedMembership: e.target.value
+                        ? { ...members.find((m) => m.id === e.target.value)!, role: 'editor' }
+                        : null,
+                    })
+                  }
+                >
+                  <option value="">Sem responsável</option>
+                  {members.map((member) => (
+                    <option value={member.id} key={member.id}>
+                      {member.displayName}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Status
+                <select
+                  value={selectedLead.status}
+                  onChange={(e) => setSelectedLead({ ...selectedLead, status: e.target.value })}
+                >
+                  {['NEW', 'IN_PROGRESS', 'QUALIFIED', 'DISQUALIFIED', 'CONVERTED'].map((status) => (
+                    <option key={status} value={status}>
+                      {
+                        (
+                          {
+                            NEW: 'Novo',
+                            IN_PROGRESS: 'Em atendimento',
+                            QUALIFIED: 'Qualificado',
+                            DISQUALIFIED: 'Desqualificado',
+                            CONVERTED: 'Convertido',
+                          } as Record<string, string>
+                        )[status]
+                      }
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                Etiquetas (separadas por vírgula)
+                <input
+                  value={selectedLead.tags.join(', ')}
+                  onChange={(e) =>
+                    setSelectedLead({ ...selectedLead, tags: e.target.value.split(',').map((t) => t.trim()) })
+                  }
+                />
+              </label>
+              <label className="field">
+                Telefone WhatsApp
+                <input
+                  value={selectedLead.phone ?? ''}
+                  placeholder="+5511999999999"
+                  onChange={(e) => setSelectedLead({ ...selectedLead, phone: e.target.value })}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={selectedLead.whatsappConsent ?? false}
+                  onChange={(e) => setSelectedLead({ ...selectedLead, whatsappConsent: e.target.checked })}
+                />{' '}
+                Consentimento do destinatário confirmado para este canal
+              </label>
+              <Button onClick={saveLead} disabled={!canEdit || saving}>
+                Salvar alterações do lead
+              </Button>
+            </fieldset>
+            <h3>Histórico de automações</h3>
+            {selectedLead.executions?.length ? (
+              selectedLead.executions.map((execution) => (
+                <div className="info-box" key={execution.id}>
+                  <span>
+                    {new Date(execution.createdAt).toLocaleString('pt-BR')} · {execution.status} · tentativa{' '}
+                    {execution.attempt}
+                    {execution.errorCode ? ` · ${execution.errorCode}` : ''}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="field-helper">Nenhuma execução vinculada.</p>
             )}
 
             <div style={{ textAlign: 'right', marginTop: '20px' }}>

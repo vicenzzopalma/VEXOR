@@ -29,27 +29,25 @@ export function RunLog({ run, onClose }: { run: UnifiedRun; onClose: () => void 
   const successSteps = steps.filter((s) => s.status === 'success' || s.status === 'COMPLETED');
 
   return (
-    <section className="run-console" aria-label={isReal ? 'Resultado da execução real' : 'Resultado da simulação'}>
+    <section
+      className="run-console"
+      aria-label={isReal ? 'Resultado da execução real' : 'Resultado da simulação'}
+    >
       <div className="console-heading">
         <div>
           {isReal ? <Zap size={16} color="#7c3aed" /> : <Terminal size={16} />}
           <strong>{isReal ? 'Execução Comercial Real' : 'Resultado da Simulação'}</strong>
-          <span className="success-pill">
-            {successSteps.length} etapas concluídas
-          </span>
+          <span className="success-pill">{successSteps.length} etapas concluídas</span>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Fechar resultado">
           <X size={17} />
         </button>
       </div>
 
-      <div
-        className="console-note"
-        style={isReal ? { background: '#f5f0ff', borderColor: '#d8b4fe' } : {}}
-      >
+      <div className="console-note" style={isReal ? { background: '#f5f0ff', borderColor: '#d8b4fe' } : {}}>
         {isReal ? <Zap size={13} color="#7c3aed" /> : <ShieldCheck size={13} />}
         {isReal
-          ? 'Processo real executado pelo worker. Alterações persistidas no PostgreSQL.'
+          ? `Execução: ${execution.status}. Consulte cada etapa para verificar os efeitos persistidos.`
           : 'Nenhuma ação externa foi enviada. Entradas pessoais protegidas.'}
         <span>
           <Clock3 size={12} />
@@ -109,7 +107,7 @@ export function RunLog({ run, onClose }: { run: UnifiedRun; onClose: () => void 
                 }}
               >
                 <Bell size={13} />
-                <span>Notificações Disparadas ({execution.notifications.length}):</span>
+                <span>Registros de notificações ({execution.notifications.length}):</span>
               </div>
               <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: '12px', color: '#334155' }}>
                 {execution.notifications.map((n) => (

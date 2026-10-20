@@ -1,18 +1,50 @@
-
 'use client';
 import { Copy, Trash2, X, Lightbulb, ChevronDown, Settings2, ShieldCheck } from 'lucide-react';
-import { catalog, configSchemas, type WorkflowNode } from '@eimax/workflow-schema';
+import { catalog, configSchemas, type WorkflowNode, type Workflow } from '@eimax/workflow-schema';
+import { VariableInput } from './variable-input';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { blockIcons } from './icons';
 import { Button } from './ui';
 type Props = {
   node?: WorkflowNode;
+  workflow?: Workflow;
   onUpdate: (node: WorkflowNode) => void;
   onDelete: () => void;
   onDuplicate: () => void;
   onClose: () => void;
   readOnly?: boolean;
 };
-export function Inspector({ node, onUpdate, onDelete, onDuplicate, onClose, readOnly = false }: Props) {
+export function Inspector({
+  node,
+  workflow,
+  onUpdate,
+  onDelete,
+  onDuplicate,
+  onClose,
+  readOnly = false,
+}: Props) {
+  const [accounts, setAccounts] = useState<
+    Array<{
+      id: string;
+      name: string;
+      provider: string;
+      state: string;
+      settings: { approvedTemplates?: { name: string; language: string }[] };
+    }>
+  >([]);
+  const [members, setMembers] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [loadError, setLoadError] = useState('');
+  useEffect(() => {
+    if (node?.type.startsWith('whatsapp.'))
+      api<typeof accounts>('/integrations/whatsapp')
+        .then(setAccounts)
+        .catch((e) => setLoadError(e.message));
+    if (node?.type === 'sdr.assign')
+      api<typeof members>('/memberships')
+        .then(setMembers)
+        .catch((e) => setLoadError(e.message));
+  }, [node?.type]);
   if (!node)
     return (
       <aside className="inspector">
@@ -75,6 +107,89 @@ export function Inspector({ node, onUpdate, onDelete, onDuplicate, onClose, read
           <h3 className="field-section">
             {node.type === 'condition' ? 'Configure sua condição' : 'Configuração'}
           </h3>
+          {loadError && (
+            <p className="field-helper" role="status">
+              {loadError}
+            </p>
+          )}
+          {node.type.startsWith('whatsapp.') && node.type !== 'whatsapp.sdr.notify' && (
+            <>
+              <label className="field">
+                Conta WhatsApp
+                <select
+                  value={String(c.connectionId ?? '')}
+                  onChange={(e) => field('connectionId', e.target.value)}
+                >
+                  <option value="">Selecione uma conta</option>
+                  {accounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} · {account.state === 'CONNECTED' ? 'Conectada' : 'Desconectada'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!accounts.length && (
+                <p className="field-helper">Cadastre uma conta em Integrações → WhatsApp.</p>
+              )}
+              {!!c.connectionId && accounts.find((a) => a.id === c.connectionId)?.state !== 'CONNECTED' && (
+                <p className="validation-errors">Conecte a conta antes de publicar ou executar.</p>
+              )}
+            </>
+          )}
+          {node.type === 'whatsapp.conversation.started' && (
+            <p className="field-helper">
+              Os adaptadores atuais ainda não confirmam um evento nativo de nova conversa. A publicação deste
+              gatilho fica bloqueada.
+            </p>
+          )}
+          {node.type === 'whatsapp.text.send' && (
+            <VariableInput
+              key={`${node.id}-text`}
+              node={node}
+              workflow={workflow}
+              label="Mensagem WhatsApp"
+              value={String(c.text ?? '')}
+              onChange={(v) => field('text', v)}
+              maxLength={4096}
+            />
+          )}
+          {node.type === 'whatsapp.template.send' && (
+            <>
+              <label className="field">
+                Template aprovado
+                <select
+                  value={`${c.template ?? ''}:${c.language ?? 'pt_BR'}`}
+                  onChange={(e) => {
+                    const [template, language] = e.target.value.split(':');
+                    onUpdate({ ...node, config: { ...c, template, language } });
+                  }}
+                >
+                  <option value=":pt_BR">Selecione um template</option>
+                  {(accounts.find((a) => a.id === c.connectionId)?.settings.approvedTemplates ?? []).map(
+                    (t) => (
+                      <option key={`${t.name}:${t.language}`} value={`${t.name}:${t.language}`}>
+                        {t.name} · {t.language}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
+              <p className="field-helper">
+                Templates sem parâmetros, confirmados como aprovados pela Meta ao atualizar a conta.
+              </p>
+            </>
+          )}
+          {node.type === 'whatsapp.sdr.notify' && (
+            <VariableInput
+              key={`${node.id}-sdr`}
+              node={node}
+              workflow={workflow}
+              label="Aviso ao SDR"
+              value={String(c.message ?? '')}
+              onChange={(v) => field('message', v)}
+              maxLength={1000}
+            />
+          )}
           {node.type === 'condition' && (
             <>
               <p className="field-helper">O lead seguirá um caminho de acordo com esta regra.</p>
@@ -132,7 +247,9 @@ export function Inspector({ node, onUpdate, onDelete, onDuplicate, onClose, read
             <label className="field">
               Origem do lead
               <input value={String(c.source ?? '')} onChange={(e) => field('source', e.target.value)} />
-              <span className="field-helper">Evento de exemplo na simulação. Recepção real na fase 2.</span>
+              <span className="field-helper">
+                A execução real utiliza a versão publicada e os dados recebidos.
+              </span>
             </label>
           )}
           {node.type === 'email.send' && (
@@ -143,34 +260,42 @@ export function Inspector({ node, onUpdate, onDelete, onDuplicate, onClose, read
                   <option value="lead.email">E-mail do lead</option>
                 </select>
               </label>
-              <label className="field">
-                Assunto
-                <input
-                  value={String(c.subject ?? '')}
-                  onChange={(e) => field('subject', e.target.value)}
-                  maxLength={200}
-                />
-              </label>
-              <label className="field">
-                Mensagem
-                <textarea
-                  rows={5}
-                  value={String(c.body ?? '')}
-                  onChange={(e) => field('body', e.target.value)}
-                  maxLength={5000}
-                />
-              </label>
+              <VariableInput
+                key={`${node.id}-subject`}
+                node={node}
+                workflow={workflow}
+                label="Assunto"
+                value={String(c.subject ?? '')}
+                onChange={(v) => field('subject', v)}
+                maxLength={200}
+              />
+              <VariableInput
+                key={`${node.id}-body`}
+                node={node}
+                workflow={workflow}
+                label="Mensagem"
+                value={String(c.body ?? '')}
+                onChange={(v) => field('body', v)}
+                maxLength={5000}
+              />
             </>
           )}
           {node.type === 'sdr.assign' && (
             <label className="field">
               Equipe responsável
-              <input
-                value={String(c.team ?? '')}
-                onChange={(e) => field('team', e.target.value)}
-                maxLength={200}
-              />
-              <span className="field-helper">Atribuição será simulada. A equipe não será notificada.</span>
+              <select value={String(c.team ?? '')} onChange={(e) => field('team', e.target.value)}>
+                {!members.some((m) => `membership:${m.id}` === c.team) && (
+                  <option value={String(c.team ?? '')}>Selecione um responsável</option>
+                )}
+                {members.map((member) => (
+                  <option value={`membership:${member.id}`} key={member.id}>
+                    {member.displayName}
+                  </option>
+                ))}
+              </select>
+              <span className="field-helper">
+                A execução exige um responsável escolhido explicitamente nesta organização.
+              </span>
             </label>
           )}
           {node.type === 'wait' && (
@@ -197,15 +322,15 @@ export function Inspector({ node, onUpdate, onDelete, onDuplicate, onClose, read
             </label>
           )}
           {node.type === 'manager.notify' && (
-            <label className="field">
-              Mensagem para o gestor
-              <textarea
-                rows={4}
-                value={String(c.message ?? '')}
-                onChange={(e) => field('message', e.target.value)}
-                maxLength={1000}
-              />
-            </label>
+            <VariableInput
+              key={`${node.id}-message`}
+              node={node}
+              workflow={workflow}
+              label="Mensagem para o gestor"
+              value={String(c.message ?? '')}
+              onChange={(v) => field('message', v)}
+              maxLength={1000}
+            />
           )}
           {node.type === 'webhook.received' && (
             <>
@@ -220,8 +345,8 @@ export function Inspector({ node, onUpdate, onDelete, onDuplicate, onClose, read
                 <span className="field-helper">Use um identificador. Nunca cole senhas ou tokens aqui.</span>
               </label>
               <div className="info-box">
-                <ShieldCheck size={16} />
-                Endpoint e autenticação de webhook indisponíveis até a fase 2.
+                <ShieldCheck size={16} />O servidor exige uma credencial configurada para esta organização. A
+                referência não é um segredo.
               </div>
             </>
           )}

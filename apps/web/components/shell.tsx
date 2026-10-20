@@ -1,8 +1,16 @@
-
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Workflow, PanelsTopLeft, LayoutTemplate, History, CircleHelp, ArrowUpRight, Users } from 'lucide-react';
+import {
+  Workflow,
+  PanelsTopLeft,
+  LayoutTemplate,
+  History,
+  CircleHelp,
+  ArrowUpRight,
+  Users,
+  Plug,
+} from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Dialog } from './ui';
 export function Shell({ children }: { children: ReactNode }) {
@@ -21,6 +29,7 @@ export function Shell({ children }: { children: ReactNode }) {
             { href: '/templates', icon: LayoutTemplate, label: 'Modelos' },
             { href: '/leads', icon: Users, label: 'Leads' },
             { href: '/execucoes', icon: History, label: 'Execuções' },
+            { href: '/integracoes/whatsapp', icon: Plug, label: 'Integrações' },
           ].map(({ href, icon: Icon, label }) => (
             <Link
               key={href}

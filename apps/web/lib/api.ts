@@ -1,4 +1,3 @@
-
 import type { Workflow, SimulationResult } from '@eimax/workflow-schema';
 export type VersionInfo = { id: string; number: number; createdAt: string };
 export type WorkflowRecord = {
@@ -51,6 +50,8 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export type Run = SimulationResult & { workflowId: string };
 
 export type LeadRecord = {
+  phone: string;
+  whatsappConsent: boolean;
   id: string;
   workflowId: string;
   eventKey: string;
@@ -71,6 +72,7 @@ export type LeadRecord = {
   notificationsCount: number;
   createdAt: string;
   updatedAt: string;
+  executions?: ExecutionRecord[];
 };
 
 export type NotificationRecord = {
@@ -88,6 +90,7 @@ export type NotificationRecord = {
 };
 
 export type ExecutionRecord = {
+  errorCode?: string;
   id: string;
   workflowId: string;
   eventKey: string;

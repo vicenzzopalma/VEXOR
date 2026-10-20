@@ -1,4 +1,3 @@
-
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import Link from 'next/link';
@@ -51,6 +50,7 @@ import {
 import {
   catalog,
   blockTypes,
+  triggerTypes,
   configSchemas,
   sampleLead,
   leadSchema,
@@ -269,7 +269,7 @@ function EditorWorkspace({ id }: { id: string }) {
       if (!flow || !connection.source || !connection.target || connection.source === connection.target)
         return false;
       const target = flow.nodes.find((n) => n.id === connection.target);
-      if (!target || ['lead.created', 'webhook.received'].includes(target.type)) return false;
+      if (!target || triggerTypes.includes(target.type)) return false;
       const other = flow.edges.filter((e) => e.id !== excludeId);
       if (
         other.some(
@@ -725,19 +725,19 @@ function EditorWorkspace({ id }: { id: string }) {
               >
                 <X size={14} />
               </button>
-            <span className="tip-spark">
-              <MousePointer2 size={17} />
-            </span>
-            <strong>Simples como arrastar.</strong>
-            <p>
-              Leve um bloco até o canvas.
-              <br />
-              Depois, conecte suas ideias.
-            </p>
-            <button onClick={() => setModal('help')}>
-              Ver como funciona <ArrowUpRight size={12} />
-            </button>
-          </div>
+              <span className="tip-spark">
+                <MousePointer2 size={17} />
+              </span>
+              <strong>Simples como arrastar.</strong>
+              <p>
+                Leve um bloco até o canvas.
+                <br />
+                Depois, conecte suas ideias.
+              </p>
+              <button onClick={() => setModal('help')}>
+                Ver como funciona <ArrowUpRight size={12} />
+              </button>
+            </div>
           )}
         </aside>
         {library && (
@@ -907,6 +907,7 @@ function EditorWorkspace({ id }: { id: string }) {
         {inspector && (
           <Inspector
             node={activeNode}
+            workflow={flow}
             readOnly={readOnly}
             onClose={() => setInspector(false)}
             onUpdate={(node) =>
