@@ -25,6 +25,7 @@ type Process = {
   nodeCount: number;
   updatedAt: string;
   revision: number;
+  archivedAt?: string | null;
   versions: number;
   simulations: number;
 };
@@ -95,7 +96,7 @@ export function ProcessList() {
                     </Link>
                   </td>
                   <td>{row.nodeCount}</td>
-                  <td>{row.versions ? `v${row.versions}` : 'Rascunho'}</td>
+                  <td>{row.archivedAt ? 'Arquivado' : row.versions ? `v${row.versions}` : 'Rascunho'}</td>
                   <td>{row.simulations}</td>
                   <td>
                     {new Date(row.updatedAt).toLocaleString('pt-BR', {

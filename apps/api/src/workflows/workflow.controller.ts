@@ -122,6 +122,18 @@ export class WorkflowController {
     return this.workflows.publish(id, req.access.organizationId, parse(revisionSchema, body).revision);
   }
 
+  @Post('workflows/:id/archive')
+  @Roles('owner')
+  archive(@Param('id') id: string, @Req() req: AuthorizedRequest) {
+    return this.workflows.archive(id, req.access.organizationId);
+  }
+
+  @Post('workflows/:id/unarchive')
+  @Roles('owner')
+  unarchive(@Param('id') id: string, @Req() req: AuthorizedRequest) {
+    return this.workflows.unarchive(id, req.access.organizationId);
+  }
+
   @Get('workflows/:id/versions/:number')
   async version(@Param('id') id: string, @Param('number') number: string, @Req() req: AuthorizedRequest) {
     await this.workflows.get(id, req.access.organizationId);

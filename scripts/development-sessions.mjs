@@ -10,8 +10,10 @@ export function loadDevelopmentSessions() {
         ['owner', 'other', 'editor', 'viewer'].map((name) => [name, randomBytes(32).toString('hex')]),
       );
   sessions.webhook ??= process.env.WEBHOOK_SECRET ?? randomBytes(32).toString('hex');
+  sessions.connectorKey ??= process.env.CONNECTOR_ENCRYPTION_KEY ?? randomBytes(32).toString('hex');
   writeFileSync(path, JSON.stringify(sessions), { mode: 0o600 });
   process.env.WEBHOOK_SECRET ??= sessions.webhook;
+  process.env.CONNECTOR_ENCRYPTION_KEY ??= sessions.connectorKey;
   process.env.WEBHOOK_CREDENTIALS_JSON ??= JSON.stringify({
     'org-local:ingress': sessions.webhook,
     'org-local:signed-ingress': { secret: sessions.webhook, mode: 'hmac' },

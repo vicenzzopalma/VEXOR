@@ -11,8 +11,8 @@ const db = new PrismaClient({
     },
   },
 });
-const label = process.argv.find((value) => value.startsWith('--label='))?.slice(8) ?? 'phase51';
-if (!/^phase51(?:-[a-z0-9]+)*$/.test(label)) throw new Error('Invalid audit label');
+const label = process.argv.find((value) => value.startsWith('--label='))?.slice(8) ?? 'phase52';
+if (!/^phase5[12](?:-[a-z0-9]+)*$/.test(label)) throw new Error('Invalid audit label');
 try {
   const constraints =
     await db.$queryRaw`SELECT conrelid::regclass::text AS "table", conname AS name, pg_get_constraintdef(oid) AS definition, convalidated AS validated FROM pg_constraint WHERE connamespace='public'::regnamespace AND contype='f' ORDER BY conrelid::regclass::text, conname`;

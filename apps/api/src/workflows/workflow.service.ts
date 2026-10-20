@@ -86,21 +86,41 @@ export class WorkflowService {
       nodeCount: (r.draft as unknown as Workflow).nodes.length,
       updatedAt: r.updatedAt,
       revision: r.revision,
+      archivedAt: r.archivedAt,
       versions: r._count.versions,
       simulations: r._count.simulations,
       executions: r._count.executions,
     }));
   }
 
+  async archive(id: string, organizationId: string) {
+    const flow = await this.get(id, organizationId);
+    if (flow.archivedAt) return flow;
+    return this.db.workflow.update({
+      where: { id },
+      data: { archivedAt: new Date() },
+    });
+  }
+
+  async unarchive(id: string, organizationId: string) {
+    await this.get(id, organizationId);
+    return this.db.workflow.update({
+      where: { id },
+      data: { archivedAt: null },
+    });
+  }
+
   async save(id: string, organizationId: string, body: z.infer<typeof saveSchema>) {
     return this.db.$transaction(async (tx) => {
+      const exists = await tx.workflow.findFirst({ where: { id, organizationId } });
+      if (!exists) throw new NotFoundException('Processo não encontrado.');
+      if (exists.archivedAt)
+        throw new BadRequestException('Este processo está arquivado. Desarquive antes de alterar.');
       const updated = await tx.workflow.updateMany({
         where: { id, organizationId, revision: body.revision },
         data: { draft: json(body.draft), revision: { increment: 1 } },
       });
       if (!updated.count) {
-        const exists = await tx.workflow.findFirst({ where: { id, organizationId }, select: { id: true } });
-        if (!exists) throw new NotFoundException('Processo não encontrado.');
         throw new ConflictException(
           'Este processo foi alterado em outra aba. Recarregue antes de continuar.',
         );
@@ -118,10 +138,12 @@ export class WorkflowService {
     // A row lock serializes publish vs. save and simultaneous publish requests.
     return this.db.$transaction(async (tx) => {
       const rows = await tx.$queryRaw<
-        Array<{ draft: Workflow; revision: number }>
-      >`SELECT "draft", "revision" FROM "Workflow" WHERE "id"=${id} AND "organization_id"=${organizationId} FOR UPDATE`;
+        Array<{ draft: Workflow; revision: number; archivedAt: Date | null }>
+      >`SELECT "draft", "revision", "archivedAt" FROM "Workflow" WHERE "id"=${id} AND "organization_id"=${organizationId} FOR UPDATE`;
       const row = rows[0];
       if (!row) throw new NotFoundException('Processo não encontrado.');
+      if (row.archivedAt)
+        throw new BadRequestException('Este processo está arquivado. Desarquive antes de publicar.');
       if (row.revision !== revision)
         throw new ConflictException('Salve a versão mais recente antes de publicar.');
       const issues = validateWorkflow(row.draft);

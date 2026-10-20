@@ -1,59 +1,75 @@
+# VEXOR / EIMAX Studio
 
-# EIMAX Studio
+Plataforma corporativa de automação visual de fluxos comerciais, qualificação de leads (SDR), orquestração de integrações e execução durável.
 
-Primeira entrega local: editor React Flow, API NestJS, PostgreSQL/Prisma, versões imutáveis e simulação pelo interpretador compartilhado. Não é um SaaS em produção.
+- **Stack**: Next.js 16 (React 19, React Flow 12, Tailwind), NestJS 11, Prisma 6, PostgreSQL 18 local (embedded-postgres), Worker autônomo desacoplado.
+- **Fase atual**: **Fase 5.2 Concluída** (Integridade Histórica e Preservação de Versões Publicadas).
+- **Status de Homologação**: Funcionalidades de motor, filas, idempotência, segurança e banco de dados 100% verificadas localmente. Conectores externos (Meta Cloud API, Evolution Gateway, Resend, Google Sheets) operam em modo declarativo seguro ("Configuração necessária") até homologação formal em produção.
+
+---
 
 ## Iniciar no Windows
 
-Pré-requisito: Node.js 22.13+ recomendado e npm. Também validado neste ambiente com Node 20.18; o lint emite um aviso de engine de dependência transitiva nessa versão, mas executa. Não é necessário instalar PostgreSQL, Redis ou Docker globalmente.
+Pré-requisito: Node.js 20.9+ e npm. Não é necessário instalar PostgreSQL global ou Docker: o banco local roda via `embedded-postgres` escutando em `127.0.0.1:55432`.
 
 ```powershell
 npm ci
 npm run dev
 ```
 
-Acesse **http://localhost:3000/editor/starter-sdr**. O comando compila os contratos, gera o Prisma, inicia um PostgreSQL local em `127.0.0.1:55432`, aplica migrações e inicia API (`4000`) e Next (`3000`). Dados persistem em `.local/postgres`. Ctrl+C encerra os processos iniciados por esse comando, sem apagar projetos. No Windows Administrador, pg_ctl inicia o servidor com privilégios restritos, sem criar conta ou serviço Windows.
+Acesse:
+- **Editor Visual**: [http://localhost:3000/editor/starter-sdr](http://localhost:3000/editor/starter-sdr)
+- **Meus Processos**: [http://localhost:3000/processos](http://localhost:3000/processos)
+- **Biblioteca de Modelos**: [http://localhost:3000/templates](http://localhost:3000/templates)
+- **Gestão de Leads & Oportunidades**: [http://localhost:3000/leads](http://localhost:3000/leads)
+- **Execuções & Simulações**: [http://localhost:3000/execucoes](http://localhost:3000/execucoes)
+- **Catálogo de Integrações**: [http://localhost:3000/integracoes](http://localhost:3000/integracoes)
+- **API NestJS (Status)**: [http://127.0.0.1:4000/health](http://127.0.0.1:4000/health)
 
-Não execute duas instâncias do comando nas mesmas portas. Para usar um PostgreSQL já existente, copie `.env.example` para `.env`, configure `DATABASE_URL` e `USE_EXTERNAL_DATABASE=true`. Nesse modo o script não inicia nem encerra seu servidor de banco. A base indicada deve ser dedicada a este projeto.
+---
 
-## Experimentar o editor
+## Funcionalidades Implementadas e Verificadas
 
-1. Abra o modelo SDR inicial ou visite `/templates` e clique em **Usar este modelo** para criar uma cópia.
-2. Selecione a condição. Configure orçamento mínimo e personalize os demais blocos no painel direito.
-3. Arraste ou clique em blocos da biblioteca. Conecte alças inferiores às entradas superiores. A condição tem saídas Sim/Não. Selecione uma aresta para excluir ou arraste sua ponta para reconectar.
-4. Use desfazer/refazer, Ctrl D, Delete, seleção múltipla com Shift e organização automática. Os rascunhos são salvos automaticamente; recarregue para verificar.
-5. Clique em **Testar**, altere o orçamento do lead e simule. Consulte entradas/saídas de cada etapa no console ou em `/execucoes`.
-6. Clique em **Publicar** para preservar uma versão. Consulte **Histórico de versões**. Alterações posteriores afetam somente o rascunho.
+### 1. Editor Visual e Motor de Regras
+- Catálogo de 8 blocos nativos (`lead.created`, `webhook.received`, `condition`, `email.send`, `sdr.assign`, `wait`, `tag.add`, `manager.notify`) e blocos de integração WhatsApp (`whatsapp.message.received`, `whatsapp.text.send`, `whatsapp.template.send`, `whatsapp.sdr.notify`, `whatsapp.lead.update`).
+- Validação estrita de contratos com Zod, auto-layout Dagre, histórico de versões imutáveis, simulação isolada no servidor sem chamadas externas e resolução de interpolação segura com pílulas visuais.
 
-Publicação **não executa ações externas**. Simulação avalia condições e conexões no servidor com o interpretador que receberá adapters reais na fase 2. E-mail, SDR, espera, etiquetas e notificações têm efeitos substituídos por adapters de simulação. A animação apresenta o caminho calculado; os logs guardam o resultado real da interpretação.
+### 2. Integridade Histórica e Imutabilidade (Fase 5.2)
+- **Proteção contra UPDATE e DELETE**: Gatilho SQL `immutable_workflow_version` impede mutações ou exclusões físicas de versões publicadas (`WorkflowVersion`).
+- **Proteção contra Cascata**: Chave estrangeira `WorkflowVersion` → `Workflow` com `ON DELETE RESTRICT ON UPDATE NO ACTION`.
+- **Proteção contra TRUNCATE**: Gatilhos em nível de instrução (`FOR EACH STATEMENT`) bloqueiam `TRUNCATE` em `WorkflowVersion` e `Workflow`.
+- **Arquivamento Lógico**: Coluna `archivedAt` no `Workflow`, permitindo arquivar processos publicados preservando integralmente todas as versões históricas, leads e execuções vinculadas.
 
-## Empresas e permissões nesta fase
+### 3. Fila Durável e Worker Desacoplado
+- Tabela `Execution` persistida no PostgreSQL com reserva atômica via `FOR UPDATE SKIP LOCKED`, leases com token de posse, recuperação de falhas transitórias e deduplicação determinística por idempotência (`organizationId`, `workflowId`, `eventKey`).
+- Worker autônomo em `apps/worker` com runner único compartilhado em `@eimax/workflow-runtime`.
 
-Há duas organizações de desenvolvimento e memberships owner/editor/viewer. Tokens opacos locais são gerados em `.local/development-sessions.json`; apenas seus hashes ficam no banco. O navegador recebe automaticamente um cookie HttpOnly do proprietário local. Não há seleção arbitrária de empresa pelo cliente: o servidor resolve a membership e aplica escopo e permissão em todas as rotas protegidas. Versões e simulações têm `organization_id` e chaves estrangeiras compostas.
+### 4. Segurança e Multi-tenancy
+- Isolamento rígido por organização (`organization_id`) e papéis RBAC (`owner`, `editor`, `viewer`).
+- Criptografia AES-256-GCM para dados sensíveis e credenciais de conectores, hashes Scrypt com salt para senhas e validação matemática de dígitos verificadores de CPF (módulo 11).
+- Rate limiter de login e ingressos de webhook com verificação de assinatura HMAC e janela temporal anti-replay.
 
-Isso permite testar isolamento e RBAC desde já, mas não substitui cadastro, login ou uma sessão de produção. API e interface escutam apenas loopback; a API recusa NODE_ENV=production. Não exponha este ambiente na internet. Não publique tokens ou a pasta `.local`.
+---
 
-## Verificação
+## Verificação e Testes Automatizados
 
-Com `npm run dev` ativo em outro terminal:
+Com o PostgreSQL ativo e API em execução:
 
 ```powershell
-npm run build
-npm run lint
-npm run typecheck
-npm test
-npm run test:integration
-npm run test:e2e
+npm run build              # Build de pacotes, worker, API e Next.js
+npm run lint               # ESLint com zero warnings
+npm run typecheck          # Verificação de tipos TypeScript em todo o monorepo
+npm test                   # 74 testes unitários
+npm run test:integration   # 73 testes de integração reais contra PostgreSQL
+npm run test:e2e           # 11 testes ponta a ponta (Playwright Desktop & Mobile)
 ```
 
-Playwright usa o Microsoft Edge instalado (`channel: msedge`). Se não houver Edge, instale o navegador de desenvolvimento local com `npx playwright install chromium` e ajuste o channel em `playwright.config.ts`. Screenshots e testes estão em `docs/validation/`, `tests/` e `playwright-report/`.
+---
 
-No Windows, se o Prisma não puder regenerar um engine em uso, encerre o dev com Ctrl+C, rode o build e inicie o dev novamente. Não apague a base para resolver um conflito de porta.
+## Documentação Técnica
 
-## Documentação
-
-- [Arquitetura](docs/architecture.md) e [contrato da API](docs/api.md)
-- [Design system](docs/design-system.md) e [referências analisadas](docs/design-references.md)
-- [Especificação](docs/product-spec.md), [roadmap](docs/roadmap.md) e [progresso/testes](docs/progress.md)
-
-Pendente: autenticação completa, CPF/verificações, trial, pagamentos, dashboard comercial completo, integrações reais, webhook de entrada autenticado, Redis/BullMQ e recuperação de workers. Compartilhamento aparece indisponível com explicação. Não houve contratação ou deploy.
+- [Progresso e Histórico de Fases](docs/progress.md)
+- [Relatório de Implementação da Fase 5.2](docs/implementation-report-phase-5-2.md)
+- [Plano Técnico da Fase 6](docs/phase6-technical-plan.md)
+- [Arquitetura](docs/architecture.md) e [Contrato da API](docs/api.md)
+- [Operações e Configuração](docs/operations.md)

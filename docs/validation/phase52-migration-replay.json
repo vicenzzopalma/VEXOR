@@ -1,0 +1,83 @@
+{
+  "generatedAt": "2026-10-20T20:23:14.773Z",
+  "evidenceType": "isolated-local-migration-replay",
+  "database": "eimax_phase52_migration_replay",
+  "reset": false,
+  "schemaDiffEmpty": true,
+  "migrations": [
+    {
+      "name": "202610200001_foundation"
+    },
+    {
+      "name": "202610200002_executions_and_auth"
+    },
+    {
+      "name": "202610200003_real_commercial_cycle"
+    },
+    {
+      "name": "202610200004_durable_execution_queue"
+    },
+    {
+      "name": "202610200005_whatsapp_connections"
+    },
+    {
+      "name": "202610200006_whatsapp_leads"
+    },
+    {
+      "name": "202610200007_execution_attempt_history"
+    },
+    {
+      "name": "202610200008_notification_connection_tenant"
+    },
+    {
+      "name": "202610200009_phase5_integrations"
+    },
+    {
+      "name": "202610200010_phase51_schema_alignment"
+    },
+    {
+      "name": "202610200011_phase51_commercial_scope"
+    },
+    {
+      "name": "202610200012_phase51_scope_dispatch"
+    },
+    {
+      "name": "202610200013_phase52_historical_integrity"
+    }
+  ],
+  "triggers": [
+    {
+      "name": "commercial_execution_scope"
+    },
+    {
+      "name": "commercial_lead_scope"
+    },
+    {
+      "name": "commercial_notification_scope"
+    },
+    {
+      "name": "immutable_execution_scope"
+    },
+    {
+      "name": "immutable_lead_scope"
+    },
+    {
+      "name": "immutable_membership_scope"
+    },
+    {
+      "name": "immutable_notification_scope"
+    },
+    {
+      "name": "immutable_workflow_version"
+    },
+    {
+      "name": "immutable_workflow_version_truncate"
+    },
+    {
+      "name": "protect_published_workflow_deletion"
+    },
+    {
+      "name": "protect_workflow_truncate"
+    }
+  ]
+}

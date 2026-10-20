@@ -86,6 +86,7 @@ model Workflow {
   organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   draft          Json
   revision       Int               @default(1)
+  archivedAt     DateTime?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   versions       WorkflowVersion[]
@@ -95,13 +96,14 @@ model Workflow {
 
   @@unique([id, organizationId])
   @@index([organizationId, updatedAt])
+  @@index([organizationId, archivedAt])
 }
 
 model WorkflowVersion {
   id             String      @id @default(uuid())
   workflowId     String
   organizationId String      @map("organization_id")
-  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: NoAction)
+  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction)
   number         Int
   snapshot       Json
   createdAt      DateTime    @default(now())

@@ -6,8 +6,9 @@ const url = new URL(
 );
 if (url.hostname !== '127.0.0.1' || url.port !== '55432')
   throw new Error('Migration replay is restricted to the local test database');
-const name = 'eimax_phase51_migration_replay';
-const marker = 'VEXOR phase51 isolated migration replay; no application data';
+const label = process.argv.find((v) => v.startsWith('--label='))?.slice(8) ?? 'phase52';
+const name = `eimax_${label}_migration_replay`;
+const marker = `VEXOR ${label} isolated migration replay; no application data`;
 const admin = new PrismaClient({ datasources: { db: { url: url.href } } });
 try {
   const existing =
@@ -52,7 +53,7 @@ try {
   const migrations =
     await db.$queryRaw`SELECT migration_name AS name FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL ORDER BY migration_name`;
   const triggers =
-    await db.$queryRaw`SELECT tgname AS name FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ('"Lead"'::regclass,'"Execution"'::regclass,'"Notification"'::regclass,'"Membership"'::regclass) ORDER BY tgname`;
+    await db.$queryRaw`SELECT tgname AS name FROM pg_trigger WHERE NOT tgisinternal AND tgrelid IN ('"Lead"'::regclass,'"Execution"'::regclass,'"Notification"'::regclass,'"Membership"'::regclass,'"WorkflowVersion"'::regclass,'"Workflow"'::regclass) ORDER BY tgname`;
   const evidence = {
     generatedAt: new Date().toISOString(),
     evidenceType: 'isolated-local-migration-replay',
@@ -62,7 +63,7 @@ try {
     migrations,
     triggers,
   };
-  writeFileSync('docs/validation/phase51-migration-replay.json', JSON.stringify(evidence, null, 2) + '\n');
+  writeFileSync(`docs/validation/${label}-migration-replay.json`, JSON.stringify(evidence, null, 2) + '\n');
   console.log(
     JSON.stringify({
       database: name,

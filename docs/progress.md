@@ -1,5 +1,34 @@
 # Progresso
 
+## Fase 5.2 — Integridade Histórica e Preservação de Versões Publicadas (20/10/2026)
+
+- **Correção da lacuna de integridade histórica**: Identificado que `WorkflowVersion` possuía trigger apenas para `BEFORE UPDATE`, permitindo `DELETE` direto e exclusão indireta via chave estrangeira `ON DELETE CASCADE` de `WorkflowVersion` → `Workflow`.
+- **Migração aditiva e não-destrutiva**: Aplicada a migração `202610200013_phase52_historical_integrity`:
+  1. Chave estrangeira `WorkflowVersion` → `Workflow` convertida de `CASCADE` para `RESTRICT ON UPDATE NO ACTION`.
+  2. Adicionada coluna `archivedAt` (com índice `[organization_id, archivedAt]`) em `Workflow` para suportar arquivamento lógico.
+  3. Gatilho `immutable_workflow_version` expandido para bloquear tanto `UPDATE` quanto `DELETE` em `WorkflowVersion`.
+  4. Criado gatilho statement-level `immutable_workflow_version_truncate` bloqueando tentativas de `TRUNCATE` na tabela `WorkflowVersion`.
+  5. Criado gatilho row-level `protect_published_workflow_deletion` na tabela `Workflow`, impedindo exclusão física quando houver versões publicadas e orientando o arquivamento lógico.
+  6. Criado gatilho statement-level `protect_workflow_truncate` bloqueando `TRUNCATE` em `Workflow` quando houver versões publicadas existentes.
+- **Suíte de testes de integridade SQL**: Criado arquivo `tests/integration/historical-integrity.test.ts` com 7 testes dedicados utilizando SQL real:
+  - `UPDATE` de versão publicada bloqueado com exceção imutável.
+  - `DELETE` de versão publicada bloqueado com exceção imutável.
+  - Exclusão do workflow pai rejeitada por `RESTRICT` e trigger sem apagar versões.
+  - `TRUNCATE` direto e `TRUNCATE CASCADE` bloqueados.
+  - Arquivamento lógico preserva integralmente versão, execuções e leads vinculados.
+  - Isolamento multi-tenant garantido entre organizações.
+  - Replay isolado das 13 migrações concluído com sucesso e zero diferença de schema.
+- **Resultados de Verificação**:
+  - `npm run build`: Passou sem erros (pacotes, Prisma, worker, NestJS e Next.js).
+  - `npm run lint`: Passou com 0 erros e 0 warnings.
+  - `npm run typecheck`: Passou sem erros em todos os apps e pacotes.
+  - `npm test`: **74 testes unitários passaram**.
+  - `npm run test:integration`: **73 testes de integração passaram** com PostgreSQL real.
+  - `npm run test:e2e`: **11 testes Playwright passaram** (desktop e mobile), 1 arraste mobile ignorado conforme geometria.
+  - Fingerprints de dados: 19 tabelas e 4.191 registros preservados; zero perda ou reset de dados.
+- **Preparação da Fase 6**: Diagnóstico, arquitetura e contratos produzidos em `docs/phase6-technical-plan.md` cobrindo `ExecutionStatus.SUSPENDED`, checkpoints duráveis, retenção de versão em suspensão, blocos de aprovação humana e sub-workflows reutilizáveis. Nenhuma implementação prematura foi executada.
+
+
 ## Fase 5.1 — estabilização local concluída; homologação externa pendente (20/10/2026)
 
 - Alinhadas as FKs/defaults comprovadamente divergentes e adicionados gatilhos PostgreSQL para impedir vínculos comerciais entre organizações. Migrações não destrutivas `202610200010_phase51_schema_alignment`, `202610200011_phase51_commercial_scope` e `202610200012_phase51_scope_dispatch` aplicadas; a última corrige um defeito encontrado pela regressão da própria guarda. Nenhum reset ou limpeza foi executado.

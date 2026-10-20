@@ -4,6 +4,7 @@ export type WorkflowRecord = {
   id: string;
   draft: Workflow;
   revision: number;
+  archivedAt?: string | null;
   updatedAt: string;
   versions: VersionInfo[];
 };
