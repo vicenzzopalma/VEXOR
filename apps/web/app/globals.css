@@ -647,9 +647,31 @@ button {
 .tip-spark {
   position: absolute;
   top: 15px;
-  right: 12px;
+  right: 34px;
   color: #b5a0dc;
   transform: rotate(-18deg);
+}
+.library-tip .tip-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: #a18ab7;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s, background 0.15s;
+}
+.library-tip .tip-close:hover {
+  color: #63438a;
+  background: rgba(161, 138, 183, 0.2);
 }
 .library-tip strong {
   font-weight: 500;

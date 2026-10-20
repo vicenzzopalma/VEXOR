@@ -110,6 +110,18 @@ function EditorWorkspace({ id }: { id: string }) {
   const [execution, setExecution] = useState<Record<string, string>>({});
   const [zoom, setZoom] = useState(100);
   const [hand, setHand] = useState(false);
+  const [showTip, setShowTip] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('eimax_hide_tip') === 'true') setShowTip(false);
+    } catch {}
+  }, []);
+  const dismissTip = () => {
+    setShowTip(false);
+    try {
+      localStorage.setItem('eimax_hide_tip', 'true');
+    } catch {}
+  };
   const [snapshot, setSnapshot] = useState<{ number: number; snapshot: WorkflowModel }>();
   const playback = useRef(0);
   const readOnly = state.role === 'viewer';
@@ -702,7 +714,17 @@ function EditorWorkspace({ id }: { id: string }) {
                 `${catalog[t].name} ${catalog[t].description}`.toLowerCase().includes(query.toLowerCase()),
             ) && <p className="empty-search">Nenhum bloco encontrado.</p>}
           </div>
-          <div className="library-tip">
+          {showTip && (
+            <div className="library-tip">
+              <button
+                type="button"
+                className="tip-close"
+                aria-label="Fechar dica"
+                title="Fechar dica"
+                onClick={dismissTip}
+              >
+                <X size={14} />
+              </button>
             <span className="tip-spark">
               <MousePointer2 size={17} />
             </span>
@@ -716,6 +738,7 @@ function EditorWorkspace({ id }: { id: string }) {
               Ver como funciona <ArrowUpRight size={12} />
             </button>
           </div>
+          )}
         </aside>
         {library && (
           <button className="drawer-scrim" aria-label="Fechar biblioteca" onClick={() => setLibrary(false)} />
