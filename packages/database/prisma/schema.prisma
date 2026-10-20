@@ -32,9 +32,9 @@ model Organization {
 model Membership {
   id             String               @id @default(uuid())
   organizationId String               @map("organization_id")
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   userId         String?              @map("user_id")
-  user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   displayName    String
   role           String               // 'owner', 'editor', 'viewer'
   sessions       DevelopmentSession[]
@@ -47,13 +47,13 @@ model Membership {
 model DevelopmentSession {
   tokenHash    String     @id
   membershipId String
-  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 }
 
 model User {
   id              String        @id @default(uuid())
   organizationId  String        @map("organization_id")
-  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   email           String        @unique
   passwordHash    String
   cpfCiphertext   String
@@ -72,7 +72,7 @@ model User {
 model Session {
   id        String   @id @default(uuid())
   userId    String   @map("user_id")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   tokenHash String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
@@ -83,7 +83,7 @@ model Session {
 model Workflow {
   id             String            @id @default(uuid())
   organizationId String            @map("organization_id")
-  organization   Organization      @relation(fields: [organizationId], references: [id])
+  organization   Organization      @relation(fields: [organizationId], references: [id], onUpdate: NoAction)
   draft          Json
   revision       Int               @default(1)
   createdAt      DateTime          @default(now())
@@ -101,7 +101,7 @@ model WorkflowVersion {
   id             String      @id @default(uuid())
   workflowId     String
   organizationId String      @map("organization_id")
-  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: NoAction)
   number         Int
   snapshot       Json
   createdAt      DateTime    @default(now())
@@ -115,7 +115,7 @@ model Simulation {
   id             String   @id @default(uuid())
   workflowId     String
   organizationId String   @map("organization_id")
-  workflow       Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  workflow       Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: NoAction)
   snapshot       Json
   steps          Json
   status         String
@@ -127,9 +127,9 @@ model Simulation {
 model Lead {
   id                   String        @id @default(uuid())
   organizationId       String        @map("organization_id")
-  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   workflowId           String        @map("workflow_id")
-  workflow             Workflow      @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  workflow             Workflow      @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction)
   eventKey             String        @map("event_key")
   name                 String        @default("Lead sem nome")
   email                String        @default("")
@@ -143,7 +143,7 @@ model Lead {
   externalContactKey   String?
   status               String        @default("NEW") // "NEW", "QUALIFIED", "DISQUALIFIED", "IN_PROGRESS", "CONVERTED"
   assignedMembershipId String?       @map("assigned_membership_id")
-  assignedMembership   Membership?   @relation(fields: [assignedMembershipId], references: [id], onDelete: SetNull)
+  assignedMembership   Membership?   @relation(fields: [assignedMembershipId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   tags                 Json          @default("[]")
   data                 Json
   createdAt            DateTime      @default(now())
@@ -161,13 +161,13 @@ model Lead {
 model Execution {
   id             String          @id @default(uuid())
   organizationId String          @map("organization_id")
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   workflowId     String          @map("workflow_id")
-  workflow       Workflow        @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  workflow       Workflow        @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction)
   versionId      String?         @map("version_id")
-  version        WorkflowVersion? @relation(fields: [versionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  version        WorkflowVersion? @relation(fields: [versionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction)
   leadId         String?         @map("lead_id")
-  lead           Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead           Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   eventKey       String          @map("event_key")
   status         ExecutionStatus @default(QUEUED)
   result         Json?
@@ -194,7 +194,7 @@ model Execution {
 model ExecutionStep {
   id          String    @id @default(uuid())
   executionId String    @map("execution_id")
-  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   nodeId      String    @map("node_id")
   nodeType    String    @map("node_type")
   name        String
@@ -211,11 +211,11 @@ model ExecutionStep {
 model Notification {
   id             String       @id @default(uuid())
   organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   leadId         String?      @map("lead_id")
-  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   executionId    String?      @map("execution_id")
-  execution      Execution?   @relation(fields: [executionId], references: [id], onDelete: SetNull)
+  execution      Execution?   @relation(fields: [executionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   channel        String       // "MANAGER_NOTIFICATION", "EMAIL", "INTERNAL"
   recipient      String
   title          String
