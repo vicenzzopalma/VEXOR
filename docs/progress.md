@@ -1,5 +1,31 @@
 # Progresso
 
+## Fase 5 — implementação local verificada, homologação externa pendente
+
+Inspeção iniciada com Git limpo em `7b6c40e` e base de 46 testes unitários reexecutada. Preservados monorepo, editor, runner e tabelas comerciais existentes. Nenhum arquivo do Veritas foi acessado.
+
+- Framework declarativo versionado: Meta, Evolution, Resend, Google Sheets, RD Station e HubSpot, com schemas, autenticação, formulários, operações e capacidades. CRM permanece contrato preparatório.
+- Inbox WhatsApp durável com distribuição pelo worker, rotas/snapshots fixados no primeiro recebimento, deduplicação e contexto individual da mensagem. Pílula de mensagem, atualização de lead a partir da conversa e histórico persistente por organização.
+- Gestão de instâncias Evolution e reconexão preparadas; sessão e QR só vêm do gateway. Outbox com reserva atômica e token de posse; e-mail Resend com chave idempotente, recibos Svix e distinção rigorosa entre aceite e entrega. Falhas WhatsApp incertas exigem conciliação.
+- Webhooks com HMAC opcional por referência, janela temporal, rate limit PostgreSQL, auditoria de aceites/rejeições sem segredos e RBAC. Integrações → catálogo de contas, configuração segura, seleção de e-mail no editor e mapeamento visual de planilhas com prévia local.
+- OAuth Google preparado com PKCE/estado protegido, expiração e consumo único testados; callback, troca/renovação de tokens, transferência produtiva de leads e adapters de CRM ainda pendentes. Nenhum envio real, serviço pago ou deploy foi realizado.
+
+Migração aditiva `202610200009_phase5_integrations` aplicada no PostgreSQL local, sem perda de dados. Auditoria somente de leitura encontrou divergências antigas de FKs/defaults; os objetos novos estão alinhados. Não foram executadas alterações destrutivas para corrigir essa dívida.
+
+| Comando                    | Resultado final desta fase                                                                                |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `npm run build`            | Passou: pacotes, Prisma, worker, Nest e Next, incluindo `/integracoes`                                    |
+| `npm run lint`             | Passou, sem warnings                                                                                      |
+| `npm run typecheck`        | Passou                                                                                                    |
+| `npm test`                 | **64 testes passaram**                                                                                    |
+| `npm run test:integration` | **46 testes passaram**, PostgreSQL/API locais; inclui dois workers/20 jobs e recuperação após interrupção |
+| `npm run test:e2e`         | **11 testes passaram**, desktop/celular; 1 de arraste desktop ignorado no celular                         |
+| `prisma validate`          | Passou com `DATABASE_URL` local configurada                                                               |
+
+Transportes externos nos testes são fixtures isoladas e **não comprovam homologação**. Serviços reais continuam em **Configuração necessária**, conforme orientação do usuário. Arquivos, evidências, configuração, riscos e próximos passos: [implementation-report-phase-5.md](implementation-report-phase-5.md).
+
+Checagem final adicional com `npm run dev` e worker ativo: `node tests/fixtures/phase5-smoke.mjs` comprovou ingresso `QUEUED`, conclusão `COMPLETED`, uma tentativa, um evento deduplicado, snapshot fixado e etiqueta persistida, sem chamar o runner no script. Evidência em `docs/validation/phase5-worker-pipeline.json`. API, web e worker locais ficaram ativos; chamadas externas foram explicitamente desabilitadas.
+
 ## Continuidade auditada — 20/10/2026
 
 O histórico das fases abaixo foi preservado, mas suas alegações antigas de worker desacoplado e entrega real **não eram suficientes**: a API executava sincronamente, o worker abandonava jobs existentes por idempotência e notificações eram marcadas como entregues apenas pela inserção no banco. Esta rodada corrigiu esses pontos a partir do repositório existente.

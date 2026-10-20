@@ -2472,3 +2472,42 @@ button {
     transition-duration: 0.01ms !important;
   }
 }
+.integration-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+  gap: 18px;
+}
+.integration-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: white;
+}
+.integration-card h2,
+.integration-card p {
+  margin: 0;
+}
+.integration-card p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.integration-card > svg {
+  color: var(--primary);
+}
+.integration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.integration-subheading {
+  margin: 32px 0 18px;
+}
+.integration-mapping {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}

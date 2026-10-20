@@ -1,6 +1,40 @@
 import { test, expect } from '@playwright/test';
 import { waitForExecution } from '../integration/helpers';
 
+test('integrações: cadastro persistente e prévia de mapeamento sem serviços externos', async ({
+  page,
+}, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/integracoes');
+  await expect(page.getByRole('heading', { name: 'Integrações', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Gerenciar contas' })).toBeVisible();
+  const card = page
+    .locator('.integration-card')
+    .filter({ has: page.getByRole('heading', { name: 'Google Sheets', exact: true }) });
+  await card.getByRole('button', { name: 'Adicionar conta' }).click();
+  const name = `Planilha local ${Date.now()}`;
+  await page.getByRole('textbox', { name: 'Nome da conta', exact: true }).fill(name);
+  await page.getByRole('button', { name: 'Salvar configuração', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+  await page.reload();
+  const connection = page
+    .locator('.integration-card')
+    .filter({ has: page.getByRole('heading', { name, exact: true }) });
+  await expect(connection).toContainText('Configuração necessária');
+  await expect(connection.getByRole('button', { name: 'Verificar conexão' })).toBeDisabled();
+  await connection.getByRole('button', { name: 'Conferir mapeamento' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('textbox', { name: 'Identificador da planilha' }).fill('local-fixture');
+  await dialog.getByRole('textbox', { name: 'Valor de exemplo' }).fill('<script>fixture</script> & Empresa');
+  await dialog.getByRole('button', { name: 'Ver prévia' }).click();
+  await expect(dialog).toContainText('Linha 2: <script>fixture</script> & Empresa');
+  await expect(dialog).toContainText('Prévia local');
+  await page.screenshot({ path: `docs/validation/integrations-${testInfo.project.name}.png` });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test('WhatsApp mantém configuração necessária e não oferece conexão fictícia', async ({ page }) => {
   const name = `Conta sem provedor ${Date.now()}`;
   await page.goto('/integracoes/whatsapp');

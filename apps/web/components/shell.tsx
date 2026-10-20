@@ -29,14 +29,14 @@ export function Shell({ children }: { children: ReactNode }) {
             { href: '/templates', icon: LayoutTemplate, label: 'Modelos' },
             { href: '/leads', icon: Users, label: 'Leads' },
             { href: '/execucoes', icon: History, label: 'Execuções' },
-            { href: '/integracoes/whatsapp', icon: Plug, label: 'Integrações' },
+            { href: '/integracoes', icon: Plug, label: 'Integrações' },
           ].map(({ href, icon: Icon, label }) => (
             <Link
               key={href}
               href={href}
               title={label}
               aria-label={label}
-              className={`rail-link ${(href.startsWith('/editor') ? path.startsWith('/editor') : path === href) ? 'active' : ''}`}
+              className={`rail-link ${(href.startsWith('/editor') ? path.startsWith('/editor') : href === '/integracoes' ? path.startsWith('/integracoes') : path === href) ? 'active' : ''}`}
             >
               <Icon size={21} />
               <span>{label}</span>

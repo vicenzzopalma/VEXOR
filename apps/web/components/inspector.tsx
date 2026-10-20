@@ -34,11 +34,18 @@ export function Inspector({
     }>
   >([]);
   const [members, setMembers] = useState<Array<{ id: string; displayName: string }>>([]);
+  const [emailAccounts, setEmailAccounts] = useState<
+    Array<{ id: string; name: string; provider: string; state: string }>
+  >([]);
   const [loadError, setLoadError] = useState('');
   useEffect(() => {
     if (node?.type.startsWith('whatsapp.'))
       api<typeof accounts>('/integrations/whatsapp')
         .then(setAccounts)
+        .catch((e) => setLoadError(e.message));
+    if (node?.type === 'email.send')
+      api<typeof emailAccounts>('/integrations')
+        .then((rows) => setEmailAccounts(rows.filter((row) => row.provider === 'RESEND')))
         .catch((e) => setLoadError(e.message));
     if (node?.type === 'sdr.assign')
       api<typeof members>('/memberships')
@@ -112,30 +119,31 @@ export function Inspector({
               {loadError}
             </p>
           )}
-          {node.type.startsWith('whatsapp.') && node.type !== 'whatsapp.sdr.notify' && (
-            <>
-              <label className="field">
-                Conta WhatsApp
-                <select
-                  value={String(c.connectionId ?? '')}
-                  onChange={(e) => field('connectionId', e.target.value)}
-                >
-                  <option value="">Selecione uma conta</option>
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.name} · {account.state === 'CONNECTED' ? 'Conectada' : 'Desconectada'}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {!accounts.length && (
-                <p className="field-helper">Cadastre uma conta em Integrações → WhatsApp.</p>
-              )}
-              {!!c.connectionId && accounts.find((a) => a.id === c.connectionId)?.state !== 'CONNECTED' && (
-                <p className="validation-errors">Conecte a conta antes de publicar ou executar.</p>
-              )}
-            </>
-          )}
+          {node.type.startsWith('whatsapp.') &&
+            !['whatsapp.sdr.notify', 'whatsapp.lead.update'].includes(node.type) && (
+              <>
+                <label className="field">
+                  Conta WhatsApp
+                  <select
+                    value={String(c.connectionId ?? '')}
+                    onChange={(e) => field('connectionId', e.target.value)}
+                  >
+                    <option value="">Selecione uma conta</option>
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.name} · {account.state === 'CONNECTED' ? 'Conectada' : 'Desconectada'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {!accounts.length && (
+                  <p className="field-helper">Cadastre uma conta em Integrações → WhatsApp.</p>
+                )}
+                {!!c.connectionId && accounts.find((a) => a.id === c.connectionId)?.state !== 'CONNECTED' && (
+                  <p className="validation-errors">Conecte a conta antes de publicar ou executar.</p>
+                )}
+              </>
+            )}
           {node.type === 'whatsapp.conversation.started' && (
             <p className="field-helper">
               Os adaptadores atuais ainda não confirmam um evento nativo de nova conversa. A publicação deste
@@ -189,6 +197,27 @@ export function Inspector({
               onChange={(v) => field('message', v)}
               maxLength={1000}
             />
+          )}
+          {node.type === 'whatsapp.lead.update' && (
+            <>
+              <label className="field">
+                Campo do lead
+                <select value={String(c.field ?? 'name')} onChange={(e) => field('field', e.target.value)}>
+                  <option value="name">Nome</option>
+                  <option value="company">Empresa</option>
+                  <option value="email">E-mail</option>
+                </select>
+              </label>
+              <VariableInput
+                key={`${node.id}-value`}
+                node={node}
+                workflow={workflow}
+                label="Valor da conversa"
+                value={String(c.value ?? '')}
+                onChange={(value) => field('value', value)}
+                maxLength={200}
+              />
+            </>
           )}
           {node.type === 'condition' && (
             <>
@@ -254,6 +283,26 @@ export function Inspector({
           )}
           {node.type === 'email.send' && (
             <>
+              <label className="field">
+                Conta de e-mail
+                <select
+                  value={String(c.connectionId ?? '')}
+                  onChange={(e) => {
+                    const config = { ...c };
+                    if (e.target.value) config.connectionId = e.target.value;
+                    else delete config.connectionId;
+                    onUpdate({ ...node, config });
+                  }}
+                >
+                  <option value="">Selecione uma conta</option>
+                  {emailAccounts.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name} ({account.state === 'CONNECTED' ? 'OK' : 'OFF'})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <label className="field">
                 Destinatário
                 <select value="lead.email" onChange={(e) => field('to', e.target.value)}>

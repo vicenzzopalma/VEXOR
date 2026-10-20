@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { MessageCircle, Plus, RefreshCw, Unplug, Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -21,6 +22,7 @@ type Connection = {
   credentialsConfigured: boolean;
   lastError?: string;
   checkedAt?: string;
+  updatedAt: string;
   webhookPath: string;
   qr?: string;
   expiresAt?: string;
@@ -38,6 +40,8 @@ export default function WhatsAppPage() {
   const [editing, setEditing] = useState<Partial<Connection>>();
   const [qr, setQr] = useState<Connection>();
   const [now, setNow] = useState(Date.now());
+  const [events, setEvents] =
+    useState<Array<{ id: string; kind: string; status: string; errorCode?: string; createdAt: string }>>();
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [role, setRole] = useState('viewer');
@@ -111,6 +115,7 @@ export default function WhatsAppPage() {
           name: editing.name,
           provider: editing.provider,
           settings: writableSettings,
+          ...(editing.id ? { expectedUpdatedAt: editing.updatedAt } : {}),
           ...(credentials ? { credentials } : {}),
         }),
       });
@@ -136,6 +141,7 @@ export default function WhatsAppPage() {
         <div>
           <div className="eyebrow">Integrações</div>
           <h1>WhatsApp</h1>
+          <Link href="/integracoes">Ver todas as integrações</Link>
           <p>Gerencie os números da sua organização e acompanhe a conexão com o provedor.</p>
         </div>
         {role === 'owner' && (
@@ -181,6 +187,16 @@ export default function WhatsAppPage() {
               <RefreshCw size={14} />
               Atualizar
             </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                api<NonNullable<typeof events>>(`/integrations/whatsapp/${connection.id}/events`)
+                  .then(setEvents)
+                  .catch((e) => setError(e.message))
+              }
+            >
+              Eventos
+            </Button>
             {role === 'owner' && (
               <>
                 <Button
@@ -189,14 +205,27 @@ export default function WhatsAppPage() {
                 >
                   {connection.state === 'CONNECTED' ? 'Verificar conta' : 'Conectar'}
                 </Button>
+                {connection.provider === 'EVOLUTION' && (
+                  <>
+                    <Button
+                      disabled={busy || connection.configurationRequired}
+                      onClick={() => operate(connection, 'create-instance')}
+                    >
+                      Criar instância
+                    </Button>
+                    <Button
+                      disabled={busy || connection.configurationRequired}
+                      onClick={() => operate(connection, 'reconnect')}
+                    >
+                      Reconectar
+                    </Button>
+                  </>
+                )}
                 <Button disabled={busy} onClick={() => edit(connection)}>
                   <Pencil size={14} />
                   Configurar
                 </Button>
-                <Button
-                  disabled={busy || connection.configurationRequired}
-                  onClick={() => operate(connection, 'disconnect')}
-                >
+                <Button disabled={busy} onClick={() => operate(connection, 'disconnect')}>
                   <Unplug size={14} />
                   Desconectar
                 </Button>
@@ -205,6 +234,17 @@ export default function WhatsAppPage() {
           </article>
         ))}
       </div>
+      {events && (
+        <Dialog title="Eventos recebidos" onClose={() => setEvents(undefined)}>
+          {!events.length && <p>Nenhum evento recebido.</p>}
+          {events.map((event) => (
+            <p key={event.id}>
+              {new Date(event.createdAt).toLocaleString('pt-BR')} ? {event.kind} ? {event.status}
+              {event.errorCode ? ` (${event.errorCode})` : ''}
+            </p>
+          ))}
+        </Dialog>
+      )}
       {editing && (
         <Dialog
           title={editing.id ? 'Configurar conta' : 'Adicionar conta WhatsApp'}

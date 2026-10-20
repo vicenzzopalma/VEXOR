@@ -73,6 +73,15 @@ export type LeadRecord = {
   createdAt: string;
   updatedAt: string;
   executions?: ExecutionRecord[];
+  conversation?: Array<{ id: string; createdAt: string; status: string; errorCode?: string; text: string }>;
+  notifications?: Array<{
+    id: string;
+    channel: string;
+    status: string;
+    createdAt: string;
+    providerMessageId?: string;
+    errorCode?: string;
+  }>;
 };
 
 export type NotificationRecord = {

@@ -820,6 +820,31 @@ export function LeadList() {
                 Salvar alterações do lead
               </Button>
             </fieldset>
+            <h3>Conversa e mensagens</h3>
+            {selectedLead.conversation?.length ? (
+              selectedLead.conversation.map((event) => (
+                <div className="info-box" key={event.id}>
+                  <div>
+                    <small>
+                      {new Date(event.createdAt).toLocaleString('pt-BR')} · Recebida · {event.status}
+                    </small>
+                    <p>{event.text}</p>
+                    {event.errorCode && <p>{event.errorCode}</p>}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="field-helper">Nenhuma mensagem recebida vinculada.</p>
+            )}
+            {selectedLead.notifications
+              ?.filter((item) => ['WHATSAPP', 'EMAIL'].includes(item.channel))
+              .map((item) => (
+                <div className="info-box" key={item.id}>
+                  {item.channel} · {item.status}
+                  {item.providerMessageId ? ` · ID: ${item.providerMessageId}` : ''}
+                  {item.errorCode ? ` · ${item.errorCode}` : ''}
+                </div>
+              ))}
             <h3>Histórico de automações</h3>
             {selectedLead.executions?.length ? (
               selectedLead.executions.map((execution) => (

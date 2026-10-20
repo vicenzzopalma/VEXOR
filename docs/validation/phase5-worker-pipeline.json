@@ -1,0 +1,16 @@
+{
+  "generatedAt": "2026-10-20T19:24:18.754Z",
+  "evidenceType": "local-api-running-worker-postgresql",
+  "externalProviderRequests": 0,
+  "workflowId": "0509f3e4-7716-4450-86ab-5340defd2814",
+  "executionId": "bbd5fa50-2f0e-4a67-bdb3-1956d86576c7",
+  "versionId": "60a8191b-e66b-4f20-a502-bd633ed400fb",
+  "ingressStatus": "QUEUED",
+  "finalStatus": "COMPLETED",
+  "attempt": 1,
+  "executionsForEvent": 1,
+  "persistedTags": [
+    "Lead qualificado"
+  ],
+  "steps": 2
+}
