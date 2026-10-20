@@ -1,4 +1,3 @@
-
 import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
@@ -12,7 +11,7 @@ async function bootstrap() {
     throw new Error(
       'A API desta fase é local. Configure DEVELOPMENT_WORKSPACE=true; autenticação será entregue na fase 3.',
     );
-  const app = await NestFactory.create(AppModule, { logger: ['error', 'warn', 'log'] });
+  const app = await NestFactory.create(AppModule, { rawBody: true, logger: ['error', 'warn', 'log'] });
   app.enableShutdownHooks();
   app.use(
     (req: { method: string }, res: { setHeader: (key: string, value: string) => void }, next: () => void) => {

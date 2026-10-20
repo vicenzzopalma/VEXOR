@@ -1,5 +1,6 @@
-
 import { z } from 'zod';
+import { isAllowedVariable, stepVariables, templateParts } from './variables';
+export * from './variables';
 
 export const blockTypes = [
   'lead.created',
@@ -10,12 +11,52 @@ export const blockTypes = [
   'tag.add',
   'manager.notify',
   'webhook.received',
+  'whatsapp.message.received',
+  'whatsapp.conversation.started',
+  'whatsapp.text.send',
+  'whatsapp.template.send',
+  'whatsapp.sdr.notify',
 ] as const;
 export type BlockType = (typeof blockTypes)[number];
 export const catalog: Record<
   BlockType,
   { name: string; description: string; category: string; color: string; defaults: Record<string, unknown> }
 > = {
+  'whatsapp.message.received': {
+    name: 'Mensagem WhatsApp recebida',
+    description: 'Inicie com uma mensagem recebida',
+    category: 'Gatilhos',
+    color: 'green',
+    defaults: { connectionId: '' },
+  },
+  'whatsapp.conversation.started': {
+    name: 'Nova conversa WhatsApp',
+    description: 'Requer evento de conversa do provedor',
+    category: 'Gatilhos',
+    color: 'green',
+    defaults: { connectionId: '' },
+  },
+  'whatsapp.text.send': {
+    name: 'Enviar texto WhatsApp',
+    description: 'Responda pela conta conectada',
+    category: 'Ações',
+    color: 'green',
+    defaults: { connectionId: '', text: 'Olá {{lead.name}}!' },
+  },
+  'whatsapp.template.send': {
+    name: 'Enviar template WhatsApp',
+    description: 'Use um template aprovado pela Meta',
+    category: 'Ações',
+    color: 'green',
+    defaults: { connectionId: '', template: '', language: 'pt_BR' },
+  },
+  'whatsapp.sdr.notify': {
+    name: 'Notificar SDR de mensagem',
+    description: 'Disponibilize um aviso ao responsável',
+    category: 'Ações',
+    color: 'blue',
+    defaults: { message: 'Nova mensagem recebida de {{lead.name}}.' },
+  },
   'lead.created': {
     name: 'Novo lead recebido',
     description: 'Comece com uma nova oportunidade',
@@ -80,6 +121,19 @@ export const catalog: Record<
 
 const shortText = z.string().trim().min(1, 'Preencha este campo.').max(200);
 export const configSchemas: Record<BlockType, z.ZodTypeAny> = {
+  'whatsapp.message.received': z.object({ connectionId: shortText }).strict(),
+  'whatsapp.conversation.started': z.object({ connectionId: shortText }).strict(),
+  'whatsapp.text.send': z
+    .object({ connectionId: shortText, text: z.string().trim().min(1).max(4096) })
+    .strict(),
+  'whatsapp.template.send': z
+    .object({
+      connectionId: shortText,
+      template: z.string().regex(/^[a-z0-9_]{1,200}$/),
+      language: z.string().regex(/^[a-z]{2}(?:_[A-Z]{2})?$/),
+    })
+    .strict(),
+  'whatsapp.sdr.notify': z.object({ message: z.string().trim().min(1).max(1000) }).strict(),
   'lead.created': z.object({ source: shortText }).strict(),
   'webhook.received': z
     .object({
@@ -151,6 +205,12 @@ export type WorkflowNode = z.infer<typeof nodeSchema>;
 export type WorkflowEdge = z.infer<typeof edgeSchema>;
 export type Workflow = z.infer<typeof workflowSchema>;
 export type ValidationIssue = { nodeId?: string; message: string };
+export const triggerTypes: readonly string[] = [
+  'lead.created',
+  'webhook.received',
+  'whatsapp.message.received',
+  'whatsapp.conversation.started',
+];
 
 export function validateWorkflow(flow: Workflow): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
@@ -158,9 +218,39 @@ export function validateWorkflow(flow: Workflow): ValidationIssue[] {
   if (ids.size !== flow.nodes.length) issues.push({ message: 'Há identificadores de blocos duplicados.' });
   if (new Set(flow.edges.map((e) => e.id)).size !== flow.edges.length)
     issues.push({ message: 'Há identificadores de conexões duplicados.' });
-  const triggers = flow.nodes.filter((n) => ['lead.created', 'webhook.received'].includes(n.type));
+  const triggers = flow.nodes.filter((n) => triggerTypes.includes(n.type));
   if (triggers.length !== 1) issues.push({ message: 'O processo precisa de exatamente um gatilho.' });
   for (const node of flow.nodes) {
+    for (const value of Object.values(node.config)) {
+      if (typeof value !== 'string') continue;
+      for (const part of templateParts(value).filter((p) => p.kind === 'variable')) {
+        let valid = isAllowedVariable(part.value);
+        if (part.value.startsWith('steps.')) {
+          const [, sourceId, field] = part.value.split('.');
+          const source = flow.nodes.find((n) => n.id === sourceId);
+          const ancestors = new Set<string>();
+          const visit = (id: string) => {
+            for (const edge of flow.edges.filter((e) => e.target === id)) {
+              if (!ancestors.has(edge.source)) {
+                ancestors.add(edge.source);
+                visit(edge.source);
+              }
+            }
+          };
+          visit(node.id);
+          valid =
+            valid &&
+            !!source &&
+            Object.hasOwn(stepVariables[source.type] ?? {}, field) &&
+            ancestors.has(sourceId) &&
+            sourceId !== node.id;
+        }
+        if (!valid)
+          issues.push({ nodeId: node.id, message: `${node.name}: variável indisponível (${part.value}).` });
+      }
+      if (value.replace(/\{\{[^{}]*\}\}/g, '').includes('{{'))
+        issues.push({ nodeId: node.id, message: `${node.name}: variável incompleta.` });
+    }
     const parsed = configSchemas[node.type].safeParse(node.config);
     if (!parsed.success)
       for (const item of parsed.error.issues)
@@ -214,11 +304,12 @@ export function validateWorkflow(flow: Workflow): ValidationIssue[] {
 export const leadSchema = z
   .object({
     name: shortText,
-    email: z.string().email(),
+    email: z.union([z.string().email(), z.literal('')]),
     company: shortText,
     budget: z.number().min(0).max(1e12),
     score: z.number().min(0).max(100),
     source: shortText,
+    phone: z.string().trim().max(30).optional(),
   })
   .strict();
 export type Lead = z.infer<typeof leadSchema>;

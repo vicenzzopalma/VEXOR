@@ -1,4 +1,3 @@
-
 import { describe, expect, it, vi } from 'vitest';
 import {
   blockTypes,
@@ -20,9 +19,16 @@ import {
   simulateWorkflow,
 } from '@eimax/workflow-engine';
 
-describe('Contratos dos oito blocos', () => {
+describe('Contratos dos blocos do catálogo', () => {
   it.each(blockTypes)('%s valida configuração e produz saída de simulação', (type: BlockType) => {
-    const config = type === 'webhook.received' ? { credentialRef: 'webhook-vendas' } : catalog[type].defaults;
+    const config =
+      type === 'webhook.received'
+        ? { credentialRef: 'webhook-vendas' }
+        : type === 'whatsapp.template.send'
+          ? { connectionId: 'connection-fixture', template: 'approved_fixture', language: 'pt_BR' }
+          : type.startsWith('whatsapp.') && type !== 'whatsapp.sdr.notify'
+            ? { ...catalog[type].defaults, connectionId: 'connection-fixture' }
+            : catalog[type].defaults;
     const node: WorkflowNode = {
       id: 'node',
       type,

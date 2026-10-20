@@ -2,11 +2,22 @@ import {
   configSchemas,
   leadSchema,
   validateWorkflow,
+  triggerTypes,
   type Lead,
   type StepLog,
   type Workflow,
   type WorkflowNode,
 } from '@eimax/workflow-schema';
+import { resolveTemplate } from './variables';
+export { resolveTemplate } from './variables';
+const actionErrors: Record<string, string> = {
+  ASSIGNMENT_CONFIGURATION_REQUIRED: 'Escolha um responsável da organização neste bloco.',
+  ASSIGNMENT_MEMBER_UNAVAILABLE: 'O responsável está indisponível. Revise a atribuição.',
+  EMAIL_PROVIDER_NOT_CONFIGURED: 'Configuração necessária: nenhum provedor de e-mail está habilitado.',
+  WHATSAPP_CONSENT_REQUIRED: 'Confirme o telefone e o consentimento do destinatário antes de enviar.',
+  WHATSAPP_TEMPLATE_REQUIRED: 'A janela de atendimento terminou. Use um template aprovado.',
+  WAIT_NOT_CONFIGURED: 'Espera durável ainda não disponível para execução real.',
+};
 
 export function evaluateCondition(config: Record<string, unknown>, lead: Lead): boolean {
   const value = lead[config.field as keyof Lead];
@@ -38,6 +49,8 @@ export function interpretControlNode(
   const c = configSchemas[node.type].parse(node.config);
   switch (node.type) {
     case 'lead.created':
+    case 'whatsapp.message.received':
+    case 'whatsapp.conversation.started':
       return { output: { accepted: true, source: lead.source }, message: 'Evento de lead recebido.' };
     case 'webhook.received':
       return {
@@ -72,6 +85,8 @@ export function simulateAction(
   const c = configSchemas[node.type].parse(node.config);
   switch (node.type) {
     case 'lead.created':
+    case 'whatsapp.message.received':
+    case 'whatsapp.conversation.started':
     case 'webhook.received':
     case 'condition':
       return interpretControlNode(node, lead);
@@ -90,9 +105,16 @@ export function simulateAction(
     case 'tag.add':
       return { output: { simulated: true, tag: c.tag }, message: `Etiqueta “${c.tag}” simulada.` };
     case 'manager.notify':
+    case 'whatsapp.sdr.notify':
       return {
         output: { simulated: true, notificationPrepared: true },
         message: 'Notificação validada. Nenhum aviso foi enviado.',
+      };
+    case 'whatsapp.text.send':
+    case 'whatsapp.template.send':
+      return {
+        output: { simulated: true, connectionId: c.connectionId },
+        message: 'Mensagem WhatsApp simulada. Nenhum envio realizado.',
       };
   }
 }
@@ -108,11 +130,24 @@ export const simulationEffects: EffectAdapter = {
 };
 
 export interface ProductionEffectHandlers {
-  sendEmail?: (params: { to: string; subject: string; body: string; lead: Lead }) => Promise<{ messageId?: string }>;
+  sendWhatsapp?: (params: {
+    node: WorkflowNode;
+    lead: Lead;
+  }) => Promise<{ notificationId: string; status: 'PENDING' }>;
+  notifySdr?: (params: { message: string; lead: Lead }) => Promise<{ notificationId: string }>;
+  sendEmail?: (params: {
+    to: string;
+    subject: string;
+    body: string;
+    lead: Lead;
+  }) => Promise<{ messageId?: string; status?: 'PENDING' | 'SENT' }>;
   assignSdr?: (params: { team: string; lead: Lead }) => Promise<{ assignedTo?: string }>;
   wait?: (params: { minutes: number; lead: Lead }) => Promise<{ resumeAt?: string }>;
   addTag?: (params: { tag: string; lead: Lead }) => Promise<{ tags?: string[] }>;
-  notifyManager?: (params: { message: string; lead: Lead }) => Promise<{ delivered?: boolean; notificationId?: string }>;
+  notifyManager?: (params: {
+    message: string;
+    lead: Lead;
+  }) => Promise<{ delivered?: boolean; notificationId?: string }>;
 }
 
 export function createProductionEffects(handlers: ProductionEffectHandlers = {}): EffectAdapter {
@@ -121,21 +156,38 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
       const c = configSchemas[node.type].parse(node.config);
       switch (node.type) {
         case 'lead.created':
+        case 'whatsapp.message.received':
+        case 'whatsapp.conversation.started':
         case 'webhook.received':
         case 'condition':
           return interpretControlNode(node, lead);
+        case 'whatsapp.text.send':
+        case 'whatsapp.template.send': {
+          if (!handlers.sendWhatsapp) throw new Error('Canal WhatsApp não configurado.');
+          const result = await handlers.sendWhatsapp({ node, lead });
+          return { output: result, message: 'Mensagem registrada na fila de envio; aguardando o provedor.' };
+        }
+        case 'whatsapp.sdr.notify': {
+          if (!handlers.notifySdr) throw new Error('Responsável não configurado.');
+          const result = await handlers.notifySdr({ message: c.message, lead });
+          return { output: result, message: 'Aviso interno disponibilizado ao SDR responsável.' };
+        }
         case 'email.send': {
           if (handlers.sendEmail) {
             const res = await handlers.sendEmail({ to: lead.email, subject: c.subject, body: c.body, lead });
+            if (!res.messageId) throw new Error('O provedor não confirmou um identificador.');
             return {
-              output: { sent: true, recipient: '***@***', subject: c.subject, messageId: res?.messageId },
-              message: `E-mail enviado com sucesso para ${lead.company}.`,
+              output: {
+                sent: res.status === 'SENT',
+                status: res.status ?? 'PENDING',
+                recipient: '***@***',
+                subject: c.subject,
+                messageId: res.messageId,
+              },
+              message: 'E-mail aceito pelo provedor; entrega ainda não confirmada.',
             };
           }
-          return {
-            output: { executed: true, recipient: '***@***', subject: c.subject },
-            message: `E-mail preparado e registrado para o lead (${lead.company}).`,
-          };
+          throw new Error('Provedor de e-mail não configurado.');
         }
         case 'sdr.assign': {
           if (handlers.assignSdr) {
@@ -145,10 +197,7 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
               message: `Lead atribuído à equipe ${c.team}.`,
             };
           }
-          return {
-            output: { assigned: true, team: c.team },
-            message: `Lead atribuído à equipe ${c.team}.`,
-          };
+          throw new Error('Distribuição não configurada.');
         }
         case 'wait': {
           if (handlers.wait) {
@@ -158,10 +207,7 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
               message: `Aguardando ${c.minutes} minuto(s) agendado.`,
             };
           }
-          return {
-            output: { delayed: true, minutes: c.minutes },
-            message: `Etapa de espera de ${c.minutes} minuto(s) processada.`,
-          };
+          throw new Error('WAIT_NOT_CONFIGURED');
         }
         case 'tag.add': {
           if (handlers.addTag) {
@@ -171,23 +217,17 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
               message: `Etiqueta “${c.tag}” vinculada ao lead.`,
             };
           }
-          return {
-            output: { tagged: true, tag: c.tag },
-            message: `Etiqueta “${c.tag}” aplicada com sucesso.`,
-          };
+          throw new Error('Adapter de etiquetas não configurado.');
         }
         case 'manager.notify': {
           if (handlers.notifyManager) {
             const res = await handlers.notifyManager({ message: c.message, lead });
             return {
               output: { notified: true, notificationId: res?.notificationId },
-              message: 'Notificação enviada ao gestor com sucesso.',
+              message: 'Notificação interna criada e disponibilizada.',
             };
           }
-          return {
-            output: { notified: true },
-            message: 'Notificação para o gestor registrada no sistema.',
-          };
+          throw new Error('Adapter de notificações não configurado.');
         }
       }
     },
@@ -206,9 +246,9 @@ export async function interpretWorkflow(
   const lead = leadSchema.parse(rawLead);
   const steps: StepLog[] = [];
   const visited = new Set<string>();
-  let id: string | undefined = workflow.nodes.find((n) =>
-    ['lead.created', 'webhook.received'].includes(n.type),
-  )?.id;
+  const outputs: Record<string, unknown> = Object.create(null);
+  let assignedTo: string | undefined;
+  let id: string | undefined = workflow.nodes.find((n) => triggerTypes.includes(n.type))?.id;
   const safeInput = {
     company: lead.company,
     budget: lead.budget,
@@ -223,10 +263,22 @@ export async function interpretWorkflow(
     const node = workflow.nodes.find((n) => n.id === id)!;
     const start = performance.now();
     try {
+      const resolvedNode = { ...node, config: { ...node.config } };
+      let dynamic = false;
+      if (!['condition', 'sdr.assign', ...triggerTypes].includes(node.type)) {
+        for (const [key, value] of Object.entries(node.config)) {
+          if (typeof value === 'string' && value.includes('{{')) {
+            dynamic = true;
+            resolvedNode.config[key] = resolveTemplate(value, { ...lead, assignedTo }, outputs).text;
+          }
+        }
+      }
       const { output, message } =
-        node.type === 'condition' || node.type === 'lead.created' || node.type === 'webhook.received'
+        node.type === 'condition' || triggerTypes.includes(node.type)
           ? interpretControlNode(node, lead)
-          : await effects.execute(node, lead);
+          : await effects.execute(resolvedNode, lead);
+      outputs[node.id] = structuredClone(output);
+      if (node.type === 'sdr.assign' && typeof output.assignedTo === 'string') assignedTo = output.assignedTo;
       const nextBranch = output.branch;
       if (node.type === 'condition' && node.config.field === 'email') {
         output.value = '***@***';
@@ -238,22 +290,24 @@ export async function interpretWorkflow(
         type: node.type,
         status: 'success',
         input: safeInput,
-        output,
-        message,
+        output: dynamic ? { resolved: true, details: '[conteúdo dinâmico oculto]' } : output,
+        message: dynamic ? 'Etapa executada com variáveis; conteúdo protegido no histórico.' : message,
         durationMs: Math.max(1, Math.round(performance.now() - start)),
       });
       id = workflow.edges.find(
         (e) => e.source === node.id && (node.type !== 'condition' || e.branch === nextBranch),
       )?.target;
-    } catch {
+    } catch (error) {
+      const code =
+        error instanceof Error && Object.hasOwn(actionErrors, error.message) ? error.message : undefined;
       steps.push({
         nodeId: node.id,
         name: node.name,
         type: node.type,
         status: 'failed',
         input: safeInput,
-        output: {},
-        message: 'A configuração deste bloco não pôde ser executada.',
+        output: code ? { errorCode: code } : {},
+        message: code ? actionErrors[code] : 'A configuração deste bloco não pôde ser executada.',
         durationMs: Math.max(1, Math.round(performance.now() - start)),
       });
       break;

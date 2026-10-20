@@ -24,6 +24,7 @@ model Organization {
   leads         Lead[]
   executions    Execution[]
   notifications Notification[]
+  connections   WhatsAppConnection[]
 }
 
 model Membership {
@@ -134,6 +135,10 @@ model Lead {
   budget               Float         @default(0)
   score                Int           @default(0)
   source               String        @default("webhook")
+  phone                String        @default("")
+  whatsappConsent      Boolean       @default(false)
+  lastInboundAt        DateTime?
+  externalContactKey   String?
   status               String        @default("NEW") // "NEW", "QUALIFIED", "DISQUALIFIED", "IN_PROGRESS", "CONVERTED"
   assignedMembershipId String?       @map("assigned_membership_id")
   assignedMembership   Membership?   @relation(fields: [assignedMembershipId], references: [id], onDelete: SetNull)
@@ -145,6 +150,7 @@ model Lead {
   notifications        Notification[]
 
   @@unique([organizationId, workflowId, eventKey])
+  @@unique([organizationId, workflowId, externalContactKey])
   @@index([organizationId, status])
   @@index([organizationId, createdAt])
   @@index([assignedMembershipId])
@@ -165,7 +171,14 @@ model Execution {
   result         Json?
   errorCode      String?
   attempt        Int             @default(0)
+  attemptHistory Json            @default("[]")
   createdAt      DateTime        @default(now())
+  startedAt      DateTime?
+  availableAt    DateTime        @default(now())
+  leaseUntil     DateTime?
+  leaseToken     String?
+  maxAttempts    Int             @default(3)
+  durationMs     Int?
   finishedAt     DateTime?
   steps          ExecutionStep[]
   notifications  Notification[]
@@ -204,9 +217,53 @@ model Notification {
   recipient      String
   title          String
   message        String
-  status         String       @default("DELIVERED") // "PENDING", "DELIVERED", "FAILED"
+  status         String       @default("PENDING") // External: PENDING/PROCESSING/SENT/DELIVERED/READ/FAILED. Internal: AVAILABLE.
+  connectionId   String?
+  connection     WhatsAppConnection? @relation(fields: [connectionId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction, map: "Notification_connection_tenant_fkey")
+  providerMessageId String?
+  nodeId         String?
+  payload        Json?
+  processingAt   DateTime?
+  errorCode      String?
+  attempt        Int          @default(0)
   createdAt      DateTime     @default(now())
 
   @@index([organizationId, createdAt])
   @@index([leadId])
+  @@unique([executionId, nodeId], map: "Notification_executionId_nodeId_key")
+  @@unique([connectionId, providerMessageId])
+}
+
+model WhatsAppConnection {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  name           String
+  provider       String
+  enabled        Boolean @default(false)
+  state          String @default("DISCONNECTED")
+  settings       Json
+  credentials    String?
+  lastError      String?
+  checkedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  notifications  Notification[]
+  events         WhatsAppEvent[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, createdAt])
+}
+
+model WhatsAppEvent {
+  id             String @id @default(uuid())
+  connectionId   String
+  connection     WhatsAppConnection @relation(fields: [connectionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  providerEventId String
+  kind           String
+  payload        Json
+  createdAt      DateTime @default(now())
+
+  @@unique([connectionId, providerEventId, kind])
+  @@index([connectionId, createdAt])
 }

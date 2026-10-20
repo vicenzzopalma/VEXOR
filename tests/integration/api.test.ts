@@ -1,5 +1,5 @@
-
 import { beforeAll, describe, expect, it } from 'vitest';
+import { waitForExecution } from './helpers';
 import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { sampleLead } from '@eimax/workflow-schema';
@@ -31,6 +31,8 @@ beforeAll(async () => {
     .data;
   b = (await request('/workflows', 'other', 'POST', { template: 'sdr', name: `Integração B ${Date.now()}` }))
     .data;
+  a.draft.nodes.find((n: any) => n.type === 'sdr.assign').config.team = 'membership:dev-owner';
+  a = (await request(`/workflows/${a.id}`, 'owner', 'PATCH', { revision: a.revision, draft: a.draft })).data;
   expect(a.id).toBeTruthy();
   expect(b.id).toBeTruthy();
 });
@@ -188,7 +190,9 @@ describe('Persistência, revisão e versões', () => {
     expect(
       (await request(`/workflows/${a.id}/simulations`)).data.some((r: any) => r.id === result.data.id),
     ).toBe(true);
-    expect((await request('/simulations', 'other')).data.some((r: any) => r.id === result.data.id)).toBe(false);
+    expect((await request('/simulations', 'other')).data.some((r: any) => r.id === result.data.id)).toBe(
+      false,
+    );
   });
 });
 
@@ -200,10 +204,14 @@ describe('Fase 2: Execução real de workflows e idempotência', () => {
       eventKey,
     });
     expect(res.status).toBe(201);
-    expect(res.data.status).toBe('COMPLETED');
+    expect(res.data.status).toBe('QUEUED');
+    const completed = await waitForExecution(res.data.id);
+    expect(completed.status).toBe('COMPLETED');
     expect(res.data.idempotentHit).toBe(false);
-    expect(res.data.steps.length).toBeGreaterThan(0);
-    expect(res.data.steps.some((s: any) => s.nodeType === 'sdr.assign' && s.status === 'success')).toBe(true);
+    expect(completed.steps.length).toBeGreaterThan(0);
+    expect(completed.steps.some((s: any) => s.nodeType === 'sdr.assign' && s.status === 'success')).toBe(
+      true,
+    );
 
     // Idempotency: re-running with same eventKey returns exact same execution
     const duplicate = await request(`/workflows/${a.id}/execute`, 'owner', 'POST', {
@@ -218,7 +226,7 @@ describe('Fase 2: Execução real de workflows e idempotência', () => {
     const detail = await request(`/executions/${res.data.id}`, 'owner');
     expect(detail.status).toBe(200);
     expect(detail.data.id).toBe(res.data.id);
-    expect(detail.data.steps.length).toBe(res.data.steps.length);
+    expect(detail.data.steps.length).toBe(completed.steps.length);
 
     // Tenant isolation: Company B cannot see Company A's execution
     const isolation = await request(`/executions/${res.data.id}`, 'other');

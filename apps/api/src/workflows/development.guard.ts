@@ -30,16 +30,20 @@ export class DevelopmentGuard implements CanActivate {
     // 1. Try production session
     const prodSession = await this.workflows.db.session.findUnique({
       where: { tokenHash },
-      include: { user: true },
+      include: { user: { include: { memberships: true } } },
     });
 
     if (prodSession) {
       if (prodSession.expiresAt.getTime() <= Date.now()) {
         throw new HttpException('Sessão expirada.', 401);
       }
+      const membership = prodSession.user.memberships.find(
+        (member) => member.organizationId === prodSession.user.organizationId,
+      );
+      if (!membership) throw new HttpException('Vínculo com a organização necessário.', 401);
       req.access = {
-        organizationId: prodSession.user.organizationId,
-        role: prodSession.user.role,
+        organizationId: membership.organizationId,
+        role: membership.role,
         userId: prodSession.userId,
       };
     } else {

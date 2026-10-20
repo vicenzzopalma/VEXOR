@@ -1,53 +1,55 @@
-import 'dotenv/config';
-import { PrismaClient, ExecutionStatus } from '@prisma/client';
-import { processWorkflowExecution } from './runner';
-
+﻿import 'dotenv/config';
+import { PrismaClient } from '@prisma/client';
+import { runNextExecution, dispatchNextWhatsApp } from './runner';
 export * from './runner';
 
-export async function startWorkerLoop(prisma: PrismaClient, pollIntervalMs = 2000) {
-  let isRunning = true;
-  console.log('Worker iniciado. Aguardando execuções enfileiradas...');
-
-  const loop = async () => {
-    while (isRunning) {
+export async function startWorkerLoop(prisma: PrismaClient, pollIntervalMs = 500) {
+  let running = true;
+  let wake: (() => void) | undefined;
+  const done = (async () => {
+    while (running) {
       try {
-        const queued = await prisma.execution.findFirst({
-          where: { status: ExecutionStatus.QUEUED },
-          include: { lead: true },
-          orderBy: { createdAt: 'asc' },
-        });
-
-        if (queued && queued.lead) {
-          console.log(`Processando execução enfileirada: ${queued.id} (${queued.eventKey})`);
-          await processWorkflowExecution({
-            prisma,
-            organizationId: queued.organizationId,
-            workflowId: queued.workflowId,
-            eventKey: queued.eventKey,
-            leadData: queued.lead.data,
-            versionId: queued.versionId ?? undefined,
-          });
-        }
-      } catch (err: any) {
-        console.error('Erro no loop do worker:', err?.message);
+        const result = await runNextExecution(prisma);
+        const delivery = await dispatchNextWhatsApp(prisma);
+        if (result || delivery) continue;
+      } catch {
+        console.error('Worker: falha de banco; a reserva será recuperada pelo lease.');
       }
-      await new Promise((r) => setTimeout(r, pollIntervalMs));
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, pollIntervalMs);
+        wake = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
     }
-  };
-
-  loop();
-
+  })();
   return {
-    stop: () => {
-      isRunning = false;
+    stop: async () => {
+      running = false;
+      wake?.();
+      await done;
     },
   };
 }
 
 if (require.main === module) {
   const prisma = new PrismaClient();
-  startWorkerLoop(prisma).catch((err) => {
-    console.error('Falha fatal no worker:', err);
-    process.exit(1);
-  });
+  startWorkerLoop(prisma)
+    .then((worker) => {
+      const stop = async () => {
+        await worker.stop();
+        await prisma.$disconnect();
+      };
+      process.once('SIGINT', () => {
+        void stop();
+      });
+      process.once('SIGTERM', () => {
+        void stop();
+      });
+    })
+    .catch(async () => {
+      await prisma.$disconnect();
+      process.exitCode = 1;
+    });
 }

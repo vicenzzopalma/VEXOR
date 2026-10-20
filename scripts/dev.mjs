@@ -1,4 +1,3 @@
-
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -44,7 +43,13 @@ process.on('SIGINT', () => stop());
 process.on('SIGTERM', () => stop());
 try {
   await finish(
-    run('node_modules/typescript/bin/tsc', ['-b', 'packages/workflow-schema', 'packages/workflow-engine']),
+    run('node_modules/typescript/bin/tsc', [
+      '-b',
+      'packages/workflow-schema',
+      'packages/workflow-engine',
+      'packages/workflow-runtime',
+      'packages/connectors',
+    ]),
   );
   await finish(
     run('node_modules/prisma/build/index.js', [
@@ -79,6 +84,8 @@ try {
     await new Promise((accept) => setTimeout(accept, 250));
   }
   if (!ready) throw new Error('A API não iniciou em 15 segundos. Verifique os logs acima.');
+  if (process.env.RUN_WORKER !== 'false')
+    children.push(run('node_modules/tsx/dist/cli.mjs', ['apps/worker/src/index.ts']));
   const web = run('node_modules/next/dist/bin/next', ['dev', '--hostname', '127.0.0.1', '--port', '3000'], {
     cwd: resolve('apps/web'),
   });

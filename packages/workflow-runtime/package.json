@@ -1,0 +1,13 @@
+{
+  "name": "@eimax/workflow-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "dependencies": {
+    "@eimax/connectors": "*",
+    "@eimax/workflow-schema": "*",
+    "@eimax/workflow-engine": "*",
+    "@prisma/client": "6.19.3"
+  }
+}

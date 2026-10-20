@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from 'vitest';
 import 'dotenv/config';
+import { waitForExecution } from './helpers';
 import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 
@@ -41,6 +42,13 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     });
     expect(resA.status).toBe(201);
     workflowA = resA.data;
+    workflowA.draft.nodes.find((n: any) => n.type === 'sdr.assign').config.team = 'membership:dev-owner';
+    workflowA = (
+      await request(`/workflows/${workflowA.id}`, 'owner', 'PATCH', {
+        revision: workflowA.revision,
+        draft: workflowA.draft,
+      })
+    ).data;
 
     // Publish workflow A so it has an immutable version snapshot
     const pubRes = await request(`/workflows/${workflowA.id}/publish`, 'owner', 'POST', {
@@ -78,7 +86,8 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     });
 
     expect(executeRes.status).toBe(201);
-    expect(executeRes.data.status).toBe('COMPLETED');
+    expect(executeRes.data.status).toBe('QUEUED');
+    await waitForExecution(executeRes.data.id);
     expect(executeRes.data.idempotentHit).toBe(false);
 
     const executionId = executeRes.data.id;
@@ -127,7 +136,7 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
 
     expect(notification).toBeTruthy();
     expect(notification!.channel).toBe('MANAGER_NOTIFICATION');
-    expect(notification!.status).toBe('DELIVERED');
+    expect(notification!.status).toBe('AVAILABLE');
     expect(notification!.title).toContain('Carlos Silveira');
     expect(notification!.recipient).toBeTruthy();
 
@@ -169,7 +178,8 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     });
 
     expect(res.status).toBe(201);
-    expect(res.data.status).toBe('COMPLETED');
+    expect(res.data.status).toBe('QUEUED');
+    expect((await waitForExecution(res.data.id)).status).toBe('FAILED');
 
     const persistedLead = await prisma.lead.findUnique({
       where: {
@@ -186,11 +196,12 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     // SDR NÃO foi atribuído
     expect(persistedLead!.assignedMembershipId).toBeNull();
     // Status do lead é desqualificado
-    expect(persistedLead!.status).toBe('DISQUALIFIED');
+    expect(persistedLead!.status).toBe('NEW');
 
     // E-mail de nutrição gerado na tabela Notification
     const emailNotification = persistedLead!.notifications.find((n) => n.channel === 'EMAIL');
     expect(emailNotification).toBeTruthy();
+    expect(emailNotification!.status).toBe('FAILED');
     expect(emailNotification!.recipient).toBe('joao@pequenaempresa.com.br');
   });
 
@@ -221,6 +232,8 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     expect(second.status).toBe(201);
     expect(second.data.idempotentHit).toBe(true);
     expect(second.data.id).toBe(first.data.id);
+
+    await waitForExecution(first.data.id);
 
     // Contagem de notificações no banco para este lead permanece 1
     const notifCount = await prisma.notification.count({
@@ -277,6 +290,10 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
   it('Atualização de Lead (PATCH /leads/:id): reatribuição e atualização de status', async () => {
     const list = await request('/leads', 'owner');
     const targetLead = list.data[0];
+    const foreignAssignment = await request(`/leads/${targetLead.id}`, 'owner', 'PATCH', {
+      assignedMembershipId: 'dev-other',
+    });
+    expect(foreignAssignment.status).toBe(400);
 
     const patchRes = await request(`/leads/${targetLead.id}`, 'owner', 'PATCH', {
       status: 'CONVERTED',

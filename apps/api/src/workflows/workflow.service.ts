@@ -20,13 +20,8 @@ import {
   simulateSchema,
 } from './contracts';
 import { processWorkflowExecution } from './runner';
-import {
-  encryptCpf,
-  hashPassword,
-  MemoryRateLimiter,
-  validCpf,
-  verifyPassword,
-} from '../common/security';
+import { validateConnections } from '@eimax/workflow-runtime';
+import { encryptCpf, hashPassword, MemoryRateLimiter, validCpf, verifyPassword } from '../common/security';
 
 @Injectable()
 export class WorkflowService {
@@ -131,6 +126,13 @@ export class WorkflowService {
       const issues = validateWorkflow(row.draft);
       if (issues.length)
         throw new BadRequestException({ message: 'Revise o processo antes de publicar.', issues });
+      try {
+        await validateConnections(tx, row.draft, organizationId);
+      } catch {
+        throw new BadRequestException(
+          'Revise as conexões WhatsApp: conta conectada, evento suportado e template aprovado são obrigatórios.',
+        );
+      }
       const previous = await tx.workflowVersion.findFirst({
         where: { workflowId: id },
         orderBy: { number: 'desc' },
@@ -189,7 +191,7 @@ export class WorkflowService {
   async execute(id: string, organizationId: string, body: z.infer<typeof executeSchema>) {
     await this.get(id, organizationId);
     const eventKey = body.eventKey ?? randomBytes(16).toString('hex');
-    const result = await processWorkflowExecution({
+    const result = await this.enqueue({
       prisma: this.db,
       organizationId,
       workflowId: id,
@@ -317,6 +319,8 @@ export class WorkflowService {
       eventKey: l.eventKey,
       name: l.name,
       email: l.email,
+      phone: l.phone,
+      whatsappConsent: l.whatsappConsent,
       company: l.company,
       budget: l.budget,
       score: l.score,
@@ -363,15 +367,31 @@ export class WorkflowService {
   async updateLead(
     id: string,
     organizationId: string,
-    data: { status?: string; assignedMembershipId?: string | null; tags?: string[] },
+    data: {
+      status?: string;
+      assignedMembershipId?: string | null;
+      tags?: string[];
+      whatsappConsent?: boolean;
+      phone?: string;
+    },
   ) {
     await this.getLead(id, organizationId);
+    if (data.assignedMembershipId) {
+      const eligible = await this.db.membership.findFirst({
+        where: { id: data.assignedMembershipId, organizationId, role: { in: ['owner', 'editor'] } },
+      });
+      if (!eligible) throw new BadRequestException('Responsável indisponível nesta organização.');
+    }
     const updated = await this.db.lead.update({
       where: { id },
       data: {
         ...(data.status ? { status: data.status } : {}),
-        ...(data.assignedMembershipId !== undefined ? { assignedMembershipId: data.assignedMembershipId } : {}),
+        ...(data.assignedMembershipId !== undefined
+          ? { assignedMembershipId: data.assignedMembershipId }
+          : {}),
         ...(data.tags ? { tags: data.tags } : {}),
+        ...(data.whatsappConsent !== undefined ? { whatsappConsent: data.whatsappConsent } : {}),
+        ...(data.phone !== undefined ? { phone: data.phone } : {}),
       },
       include: {
         assignedMembership: {
@@ -461,10 +481,7 @@ export class WorkflowService {
     const cleanEmail = input.email.trim().toLowerCase();
     const check = this.rateLimiter.check(cleanEmail);
     if (!check.allowed) {
-      throw new HttpException(
-        `Muitas tentativas. Aguarde ${check.retryAfterSec} segundos.`,
-        429,
-      );
+      throw new HttpException(`Muitas tentativas. Aguarde ${check.retryAfterSec} segundos.`, 429);
     }
     const user = await this.db.user.findUnique({
       where: { email: cleanEmail },
@@ -510,30 +527,49 @@ export class WorkflowService {
     return { ok: true };
   }
 
-  async handleWebhook(workflowId: string, secret: string | undefined, body: unknown, eventKeyHeader?: string) {
+  async handleWebhook(
+    workflowId: string,
+    secret: string | undefined,
+    body: unknown,
+    eventKeyHeader?: string,
+  ) {
     const flow = await this.db.workflow.findUnique({
       where: { id: workflowId },
     });
     if (!flow) throw new NotFoundException('Webhook ou processo não encontrado.');
 
-    const draft = flow.draft as unknown as Workflow;
+    const published = await this.db.workflowVersion.findFirst({
+      where: { workflowId, organizationId: flow.organizationId },
+      orderBy: { number: 'desc' },
+    });
+    if (!published) throw new BadRequestException('Publique o processo antes de receber eventos.');
+    const draft = published.snapshot as unknown as Workflow;
     const webhookNode = draft.nodes.find((n) => n.type === 'webhook.received');
     if (!webhookNode) {
       throw new BadRequestException('Este processo não possui um gatilho de webhook configurado.');
     }
 
-    const expectedRef = (webhookNode.config as any)?.credentialRef;
-    if (expectedRef && secret !== expectedRef && secret !== process.env.WEBHOOK_SECRET) {
+    let credentials: Record<string, string> = {};
+    try {
+      credentials = JSON.parse(process.env.WEBHOOK_CREDENTIALS_JSON ?? '{}');
+    } catch {
+      /* Fail closed on configuration errors. */
+    }
+    const expectedSecret = credentials[`${flow.organizationId}:${webhookNode.config.credentialRef}`];
+    if (!expectedSecret || !secret || hash(secret) !== hash(expectedSecret)) {
       throw new HttpException('Webhook não autorizado.', 401);
     }
 
+    if (eventKeyHeader && eventKeyHeader.length > 200)
+      throw new BadRequestException('Identificador de evento inválido.');
     const eventKey = eventKeyHeader ?? hash(JSON.stringify(body));
-    const result = await processWorkflowExecution({
+    const result = await this.enqueue({
       prisma: this.db,
       organizationId: flow.organizationId,
       workflowId,
       eventKey,
       leadData: body,
+      versionId: published.id,
     });
 
     return {
@@ -541,5 +577,15 @@ export class WorkflowService {
       status: result.execution.status,
       idempotentHit: result.idempotentHit,
     };
+  }
+
+  async enqueue(params: Parameters<typeof processWorkflowExecution>[0]) {
+    try {
+      return await processWorkflowExecution(params);
+    } catch {
+      throw new BadRequestException(
+        'Execução não enfileirada. Verifique a versão publicada, os dados e as conexões do processo.',
+      );
+    }
   }
 }

@@ -60,7 +60,10 @@ export class WorkflowController {
   async login(@Body() body: unknown, @Res({ passthrough: true }) res: HttpResponse) {
     const input = parse(loginSchema, body);
     const result = await this.workflows.login(input);
-    res.setHeader('Set-Cookie', `eimax_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`);
+    res.setHeader(
+      'Set-Cookie',
+      `eimax_session=${result.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400`,
+    );
     return result;
   }
 
@@ -116,11 +119,7 @@ export class WorkflowController {
   }
 
   @Get('workflows/:id/versions/:number')
-  async version(
-    @Param('id') id: string,
-    @Param('number') number: string,
-    @Req() req: AuthorizedRequest,
-  ) {
+  async version(@Param('id') id: string, @Param('number') number: string, @Req() req: AuthorizedRequest) {
     await this.workflows.get(id, req.access.organizationId);
     const n = Number(number);
     if (!Number.isInteger(n) || n < 1) throw new BadRequestException('Versão inválida.');
@@ -185,6 +184,14 @@ export class WorkflowController {
     return this.workflows.listLeads(req.access.organizationId, workflowId, status);
   }
 
+  @Get('memberships')
+  memberships(@Req() req: AuthorizedRequest) {
+    return this.workflows.db.membership.findMany({
+      where: { organizationId: req.access.organizationId, role: { in: ['owner', 'editor'] } },
+      select: { id: true, displayName: true, role: true },
+    });
+  }
+
   @Get('leads/:id')
   getLead(@Param('id') id: string, @Req() req: AuthorizedRequest) {
     return this.workflows.getLead(id, req.access.organizationId);
@@ -192,16 +199,17 @@ export class WorkflowController {
 
   @Patch('leads/:id')
   @Roles('owner', 'editor')
-  updateLead(
-    @Param('id') id: string,
-    @Body() body: unknown,
-    @Req() req: AuthorizedRequest,
-  ) {
+  updateLead(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
     const schema = z
       .object({
         status: z.string().trim().min(1).max(50).optional(),
         assignedMembershipId: z.string().trim().nullable().optional(),
         tags: z.array(z.string().trim()).optional(),
+        whatsappConsent: z.boolean().optional(),
+        phone: z
+          .string()
+          .regex(/^\+?[1-9]\d{7,14}$/)
+          .optional(),
       })
       .strict();
     return this.workflows.updateLead(id, req.access.organizationId, parse(schema, body));
@@ -210,10 +218,7 @@ export class WorkflowController {
   // --- Notifications (Phase 2 & Real Cycle) ---
 
   @Get('notifications')
-  listNotifications(
-    @Req() req: AuthorizedRequest,
-    @Query('leadId') leadId?: string,
-  ) {
+  listNotifications(@Req() req: AuthorizedRequest, @Query('leadId') leadId?: string) {
     return this.workflows.listNotifications(req.access.organizationId, leadId);
   }
 

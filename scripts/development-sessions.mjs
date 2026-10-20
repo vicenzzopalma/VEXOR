@@ -1,4 +1,3 @@
-
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -10,7 +9,10 @@ export function loadDevelopmentSessions() {
     : Object.fromEntries(
         ['owner', 'other', 'editor', 'viewer'].map((name) => [name, randomBytes(32).toString('hex')]),
       );
-  if (!existsSync(path)) writeFileSync(path, JSON.stringify(sessions), { mode: 0o600 });
+  sessions.webhook ??= process.env.WEBHOOK_SECRET ?? randomBytes(32).toString('hex');
+  writeFileSync(path, JSON.stringify(sessions), { mode: 0o600 });
+  process.env.WEBHOOK_SECRET ??= sessions.webhook;
+  process.env.WEBHOOK_CREDENTIALS_JSON ??= JSON.stringify({ 'org-local:ingress': sessions.webhook });
   for (const [name, token] of Object.entries(sessions))
     process.env[`DEV_${name.toUpperCase()}_TOKEN`] = token;
   return sessions;
