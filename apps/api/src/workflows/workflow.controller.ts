@@ -9,6 +9,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   Res,
   SetMetadata,
@@ -171,6 +172,49 @@ export class WorkflowController {
   @Get('executions/:id')
   executionDetail(@Param('id') id: string, @Req() req: AuthorizedRequest) {
     return this.workflows.getExecution(id, req.access.organizationId);
+  }
+
+  // --- Lead Management (Phase 2 & Real Cycle) ---
+
+  @Get('leads')
+  listLeads(
+    @Req() req: AuthorizedRequest,
+    @Query('workflowId') workflowId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.workflows.listLeads(req.access.organizationId, workflowId, status);
+  }
+
+  @Get('leads/:id')
+  getLead(@Param('id') id: string, @Req() req: AuthorizedRequest) {
+    return this.workflows.getLead(id, req.access.organizationId);
+  }
+
+  @Patch('leads/:id')
+  @Roles('owner', 'editor')
+  updateLead(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: AuthorizedRequest,
+  ) {
+    const schema = z
+      .object({
+        status: z.string().trim().min(1).max(50).optional(),
+        assignedMembershipId: z.string().trim().nullable().optional(),
+        tags: z.array(z.string().trim()).optional(),
+      })
+      .strict();
+    return this.workflows.updateLead(id, req.access.organizationId, parse(schema, body));
+  }
+
+  // --- Notifications (Phase 2 & Real Cycle) ---
+
+  @Get('notifications')
+  listNotifications(
+    @Req() req: AuthorizedRequest,
+    @Query('leadId') leadId?: string,
+  ) {
+    return this.workflows.listNotifications(req.access.organizationId, leadId);
   }
 
   // --- Webhooks Ingress (Phase 2) ---

@@ -43,24 +43,50 @@ Arquitetura, design system, especificação, roadmap e critérios criados antes 
 ## Limpeza e Auditoria
 - O diretório temporário `D:\VEXOR\flow-saas` foi auditado, seus algoritmos válidos (validação de CPF, criptografia AES-GCM, rate limiting) foram migrados para o padrão limpo do projeto e o diretório foi completamente excluído.
 
+## Fase 4 — Ciclo Comercial Operacional em Produção (Concluída)
+- **Extensão do Modelo de Dados (Migration 202610200003)**:
+  - Tabela `Lead`: Adicionadas colunas estruturadas (`name`, `email`, `company`, `budget`, `score`, `source`, `status`, `assigned_membership_id`, `tags`, `updatedAt`).
+  - Tabela `Notification`: Criada com `id`, `organization_id`, `lead_id`, `execution_id`, `channel`, `recipient`, `title`, `message`, `status`, `createdAt`.
+  - Índices multiempresa e relacionamentos com `Membership`, `Execution` e `Organization`.
+- **Efeitos de Execução Reais no Motor (`runner.ts`)**:
+  - `sdr.assign`: Consulta membro real ativo (`Membership`) da organização com papel `owner` ou `editor`, atualiza `Lead.assignedMembershipId` e eleva status para `QUALIFIED`.
+  - `tag.add`: Atualiza array JSON de tags no PostgreSQL para o lead.
+  - `manager.notify`: Insere registro real na tabela `Notification` com canal `MANAGER_NOTIFICATION`, status `DELIVERED` e destinatário corporativo.
+  - `email.send`: Insere registro na tabela `Notification` (`channel: 'EMAIL'`) e marca lead como `DISQUALIFIED` caso desça pelo caminho de nutrição.
+  - Avaliação de Condições: Trata bifurcações `true` / `false` persistindo o resultado no histórico de passos.
+- **Gestão de Leads e Notificações na API**:
+  - `GET /leads`: Listagem de leads com status, orçamento, pontuação, responsável atribuído e contagem de notificações.
+  - `GET /leads/:id`: Detalhes completos do lead com histórico de execuções e notificações vinculadas.
+  - `PATCH /leads/:id`: Atualização de status e tags com isolamento estrito de organização.
+  - `GET /notifications`: Listagem de alertas e notificações corporativas.
+- **Distinção Visual e Dashboard**:
+  - Nova rota `/leads` no frontend com tabela de gestão, filtros de status (`QUALIFIED`, `DISQUALIFIED`, `NEW`) e modal de detalhamento.
+  - Aba comutadora em `/execucoes` distinguindo **Execuções Reais** (motor + worker com banco) de **Simulações** (validação sem efeitos externos).
+  - Componente `RunLog` exibindo notificações disparadas, SDR atribuído e duração em milissegundos de cada etapa.
+- **Demonstração E2E Automatizada**:
+  - Script `scripts/demo-commercial-cycle.mjs` demonstrando o ciclo completo com lead corporativo, persistência no PostgreSQL, avaliação de condição, atribuição de SDR, notificação e idempotência.
+- **Estudo Técnico WhatsApp**:
+  - Documento `docs/research/whatsapp-integration.md` diferenciando tecnicamente Conexão via QR Code (Evolution API/Baileys) de API Oficial Meta (Cloud API/WABA/HSM/janela de 24h).
+
 ## Comandos realmente executados
 
 | Comando | Resultado da rodada final |
 | --- | --- |
 | npm install | Dependências sincronizadas; 0 vulnerabilidades |
-| npm run db:generate | Prisma Client 6.19.3 gerado com modelos de Usuários, Sessões, Leads e Execuções |
-| npm run db:migrate | Migrações 1 (`foundation`) e 2 (`executions_and_auth`) aplicadas com sucesso no PostgreSQL 18 local |
+| npm run db:generate | Prisma Client 6.19.3 gerado com modelos de Usuários, Sessões, Leads, Notificações e Execuções |
+| npm run db:migrate | Migrações 1 (`foundation`), 2 (`executions_and_auth`) e 3 (`202610200003_real_commercial_cycle`) aplicadas com sucesso no PostgreSQL 18 local |
 | npm run build:packages | Compilação TypeScript de `workflow-schema` e `workflow-engine` concluída sem erros |
 | npm test | **31 testes unitários passaram** (24 de motor/regras de blocos + 7 de segurança/criptografia/rate-limiter) |
-| npm run test:integration | **16 testes de integração passaram** contra API Nest e PostgreSQL reais (isolamento de empresas, revisão otimista, imutabilidade, execução real com idempotência e autenticação de produção com CPF) |
+| npm run test:integration | **22 testes de integração passaram** contra API Nest e PostgreSQL reais (isolamento de empresas, revisão otimista, imutabilidade, ciclo comercial E2E completo, avaliação de condição, atribuição de SDR real, notificação e idempotência) |
+| node scripts/demo-commercial-cycle.mjs | **Demonstração E2E do ciclo comercial concluída com 100% de sucesso** e comprovação direta no banco |
 | npm run lint | **0 erros, 0 warnings** em todo o monorepo |
 | npm run typecheck | Compilação e verificação de tipos estritos concluídas com sucesso |
-| npm run build | **Build de produção completo passou** (pacotes, Prisma, API Nest e Next.js com 8 rotas) |
+| npm run build | **Build de produção completo passou** (pacotes, Prisma, API Nest e Next.js com 9 rotas compiladas) |
 
 ## Cobertura comprovada
 - **Unitários**: Configuração/saída dos 8 blocos, regras numéricas/textuais, adapters injetados, interrupção por falha com supressão de tokens, redação de dados sensíveis, validação de CPF (mod 11), criptografia simétrica AES-GCM, hash scrypt e rate limiting de login.
-- **Integração**: Persistência de workflows, revisão concorrente, publicação serializada, trigger de imutabilidade, isolamento multi-empresa (Empresa A não acessa dados da Empresa B), execução real de automações com deduplicação por idempotência, cadastro com CPF criptografado e login de produção.
+- **Integração e E2E**: Persistência de workflows, revisão concorrente, publicação serializada, trigger de imutabilidade, isolamento multi-empresa (Empresa A não acessa dados da Empresa B), execução real de automações com deduplicação por idempotência, cadastro com CPF criptografado, login de produção, ciclo comercial com lead persistido, avaliação de regra de orçamento, atribuição de SDR real (`Membership`), disparo de notificação (`Notification`) e histórico no dashboard.
 
-## Próximos passos (Fase 4 & 5)
-- Interface visual expandida para gestão de execuções com filtros de status e reprocessamento manual.
-- Suíte completa de ponta a ponta (E2E Playwright) validando fluxo de cadastro até execução do webhook.
+## Próximos passos (Fase 5)
+- Suíte completa de ponta a ponta de interface (E2E Playwright) validando jornada de criação de lead no navegador.
+- Implementação do adapter do provedor WhatsApp Meta Cloud API com suporte a templates HSM.

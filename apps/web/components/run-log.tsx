@@ -1,4 +1,3 @@
-
 'use client';
 import { useState } from 'react';
 import {
@@ -8,44 +7,131 @@ import {
   CircleMinus,
   AlertCircle,
   ShieldCheck,
+  Zap,
   X,
   Terminal,
   Clock3,
+  Bell,
+  UserCheck,
 } from 'lucide-react';
 import type { SimulationResult } from '@eimax/workflow-schema';
-export function RunLog({ run, onClose }: { run: SimulationResult; onClose: () => void }) {
+import type { ExecutionRecord } from '@/lib/api';
+
+export type UnifiedRun =
+  | (SimulationResult & { mode?: 'simulation'; workflowName?: string })
+  | (ExecutionRecord & { mode?: 'real'; workflowName?: string });
+
+export function RunLog({ run, onClose }: { run: UnifiedRun; onClose: () => void }) {
   const [open, setOpen] = useState<string>();
+  const isReal = run.mode === 'real' || 'leadSummary' in run || 'attempt' in run;
+  const execution = run as ExecutionRecord;
+  const steps = run.steps || [];
+  const successSteps = steps.filter((s) => s.status === 'success' || s.status === 'COMPLETED');
+
   return (
-    <section className="run-console" aria-label="Resultado da simulação">
+    <section className="run-console" aria-label={isReal ? 'Resultado da execução real' : 'Resultado da simulação'}>
       <div className="console-heading">
         <div>
-          <Terminal size={16} />
-          <strong>Resultado da simulação</strong>
+          {isReal ? <Zap size={16} color="#7c3aed" /> : <Terminal size={16} />}
+          <strong>{isReal ? 'Execução Comercial Real' : 'Resultado da Simulação'}</strong>
           <span className="success-pill">
-            {run.steps.filter((s) => s.status === 'success').length} etapas concluídas
+            {successSteps.length} etapas concluídas
           </span>
         </div>
         <button className="icon-btn" onClick={onClose} aria-label="Fechar resultado">
           <X size={17} />
         </button>
       </div>
-      <div className="console-note">
-        <ShieldCheck size={13} />
-        Nenhuma ação externa foi enviada. Entradas pessoais protegidas.
+
+      <div
+        className="console-note"
+        style={isReal ? { background: '#f5f0ff', borderColor: '#d8b4fe' } : {}}
+      >
+        {isReal ? <Zap size={13} color="#7c3aed" /> : <ShieldCheck size={13} />}
+        {isReal
+          ? 'Processo real executado pelo worker. Alterações persistidas no PostgreSQL.'
+          : 'Nenhuma ação externa foi enviada. Entradas pessoais protegidas.'}
         <span>
           <Clock3 size={12} />
           {new Date(run.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
+
+      {isReal && execution.leadSummary && (
+        <div
+          style={{
+            margin: '12px 0',
+            padding: '12px 16px',
+            background: '#ffffff',
+            border: '1px solid #e2e8f0',
+            borderRadius: '8px',
+            fontSize: '13px',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+            <strong>
+              Lead: {execution.leadSummary.name} ({execution.leadSummary.company})
+            </strong>
+            <span className="success-pill">{execution.leadSummary.status}</span>
+          </div>
+          {execution.leadSummary.assignedTo && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                color: '#475569',
+                fontSize: '12px',
+              }}
+            >
+              <UserCheck size={14} color="#16a34a" />
+              <span>
+                SDR Atribuído: <strong>{execution.leadSummary.assignedTo}</strong>
+              </span>
+            </div>
+          )}
+          {execution.notifications && execution.notifications.length > 0 && (
+            <div
+              style={{
+                marginTop: '8px',
+                paddingTop: '8px',
+                borderTop: '1px dashed #e2e8f0',
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  color: '#6b21a8',
+                  fontSize: '12px',
+                  fontWeight: 600,
+                }}
+              >
+                <Bell size={13} />
+                <span>Notificações Disparadas ({execution.notifications.length}):</span>
+              </div>
+              <ul style={{ margin: '4px 0 0 16px', padding: 0, fontSize: '12px', color: '#334155' }}>
+                {execution.notifications.map((n) => (
+                  <li key={n.id}>
+                    <strong>[{n.channel}]</strong> {n.title} → <em>{n.recipient}</em> ({n.status})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="console-steps">
-        {run.steps.map((step, i) => (
-          <div key={step.nodeId} className={`log-step log-${step.status}`}>
+        {steps.map((step, i) => (
+          <div key={step.nodeId || i} className={`log-step log-${step.status}`}>
             <button
               onClick={() => setOpen(open === step.nodeId ? undefined : step.nodeId)}
               aria-expanded={open === step.nodeId}
             >
               <span className="log-number">{String(i + 1).padStart(2, '0')}</span>
-              {step.status === 'success' ? (
+              {step.status === 'success' || step.status === 'COMPLETED' ? (
                 <Check size={15} />
               ) : step.status === 'skipped' ? (
                 <CircleMinus size={15} />
@@ -60,7 +146,7 @@ export function RunLog({ run, onClose }: { run: SimulationResult; onClose: () =>
             {open === step.nodeId && (
               <div className="log-details">
                 <div>
-                  <strong>Entrada segura</strong>
+                  <strong>Entrada</strong>
                   <pre>{JSON.stringify(step.input, null, 2)}</pre>
                 </div>
                 <div>

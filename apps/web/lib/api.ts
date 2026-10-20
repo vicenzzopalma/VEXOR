@@ -49,3 +49,73 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return data as T;
 }
 export type Run = SimulationResult & { workflowId: string };
+
+export type LeadRecord = {
+  id: string;
+  workflowId: string;
+  eventKey: string;
+  name: string;
+  email: string;
+  company: string;
+  budget: number;
+  score: number;
+  source: string;
+  status: string;
+  tags: string[];
+  assignedMembership: {
+    id: string;
+    displayName: string;
+    role: string;
+  } | null;
+  executionsCount: number;
+  notificationsCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NotificationRecord = {
+  id: string;
+  organizationId: string;
+  leadId?: string;
+  executionId?: string;
+  channel: string;
+  recipient: string;
+  title: string;
+  message: string;
+  status: string;
+  createdAt: string;
+  lead?: { id: string; name: string; company: string; status: string };
+};
+
+export type ExecutionRecord = {
+  id: string;
+  workflowId: string;
+  eventKey: string;
+  status: string;
+  attempt: number;
+  result: any;
+  createdAt: string;
+  finishedAt?: string;
+  stepsCount: number;
+  leadSummary?: {
+    id: string;
+    name: string;
+    company: string;
+    status: string;
+    assignedTo: string | null;
+    tags: string[];
+  } | null;
+  steps: Array<{
+    id: string;
+    nodeId: string;
+    nodeType: string;
+    name: string;
+    status: string;
+    input: any;
+    output: any;
+    durationMs: number;
+    message: string;
+    createdAt: string;
+  }>;
+  notifications?: NotificationRecord[];
+};

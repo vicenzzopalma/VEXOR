@@ -15,14 +15,15 @@ enum ExecutionStatus {
 }
 
 model Organization {
-  id          String        @id @default(uuid())
-  name        String
-  createdAt   DateTime      @default(now())
-  workflows   Workflow[]
-  memberships Membership[]
-  users       User[]
-  leads       Lead[]
-  executions  Execution[]
+  id            String         @id @default(uuid())
+  name          String
+  createdAt     DateTime       @default(now())
+  workflows     Workflow[]
+  memberships   Membership[]
+  users         User[]
+  leads         Lead[]
+  executions    Execution[]
+  notifications Notification[]
 }
 
 model Membership {
@@ -34,6 +35,7 @@ model Membership {
   displayName    String
   role           String               // 'owner', 'editor', 'viewer'
   sessions       DevelopmentSession[]
+  assignedLeads  Lead[]
 
   @@index([organizationId])
   @@index([userId])
@@ -120,18 +122,32 @@ model Simulation {
 }
 
 model Lead {
-  id             String      @id @default(uuid())
-  organizationId String      @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  workflowId     String      @map("workflow_id")
-  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  eventKey       String      @map("event_key")
-  data           Json
-  createdAt      DateTime    @default(now())
-  executions     Execution[]
+  id                   String        @id @default(uuid())
+  organizationId       String        @map("organization_id")
+  organization         Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workflowId           String        @map("workflow_id")
+  workflow             Workflow      @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  eventKey             String        @map("event_key")
+  name                 String        @default("Lead sem nome")
+  email                String        @default("")
+  company              String        @default("")
+  budget               Float         @default(0)
+  score                Int           @default(0)
+  source               String        @default("webhook")
+  status               String        @default("NEW") // "NEW", "QUALIFIED", "DISQUALIFIED", "IN_PROGRESS", "CONVERTED"
+  assignedMembershipId String?       @map("assigned_membership_id")
+  assignedMembership   Membership?   @relation(fields: [assignedMembershipId], references: [id], onDelete: SetNull)
+  tags                 Json          @default("[]")
+  data                 Json
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @default(now()) @updatedAt
+  executions           Execution[]
+  notifications        Notification[]
 
   @@unique([organizationId, workflowId, eventKey])
+  @@index([organizationId, status])
   @@index([organizationId, createdAt])
+  @@index([assignedMembershipId])
 }
 
 model Execution {
@@ -152,6 +168,7 @@ model Execution {
   createdAt      DateTime        @default(now())
   finishedAt     DateTime?
   steps          ExecutionStep[]
+  notifications  Notification[]
 
   @@unique([organizationId, workflowId, eventKey])
   @@index([organizationId, createdAt])
@@ -173,4 +190,23 @@ model ExecutionStep {
   createdAt   DateTime  @default(now())
 
   @@index([executionId, createdAt])
+}
+
+model Notification {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  leadId         String?      @map("lead_id")
+  lead           Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  executionId    String?      @map("execution_id")
+  execution      Execution?   @relation(fields: [executionId], references: [id], onDelete: SetNull)
+  channel        String       // "MANAGER_NOTIFICATION", "EMAIL", "INTERNAL"
+  recipient      String
+  title          String
+  message        String
+  status         String       @default("DELIVERED") // "PENDING", "DELIVERED", "FAILED"
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([leadId])
 }

@@ -24,7 +24,6 @@ import {
   encryptCpf,
   hashPassword,
   MemoryRateLimiter,
-  redactSensitiveData,
   validCpf,
   verifyPassword,
 } from '../common/security';
@@ -219,7 +218,10 @@ export class WorkflowService {
       take: 50,
       include: {
         steps: { orderBy: { createdAt: 'asc' } },
-        lead: true,
+        lead: {
+          include: { assignedMembership: true },
+        },
+        notifications: true,
       },
     });
     return rows.map((r) => ({
@@ -232,8 +234,18 @@ export class WorkflowService {
       createdAt: r.createdAt,
       finishedAt: r.finishedAt,
       stepsCount: r.steps.length,
-      leadSummary: r.lead?.data ? redactSensitiveData(r.lead.data) : null,
+      leadSummary: r.lead
+        ? {
+            id: r.lead.id,
+            name: r.lead.name,
+            company: r.lead.company,
+            status: r.lead.status,
+            assignedTo: r.lead.assignedMembership?.displayName ?? null,
+            tags: r.lead.tags,
+          }
+        : null,
       steps: r.steps,
+      notifications: r.notifications,
     }));
   }
 
@@ -242,7 +254,10 @@ export class WorkflowService {
       where: { id, organizationId },
       include: {
         steps: { orderBy: { createdAt: 'asc' } },
-        lead: true,
+        lead: {
+          include: { assignedMembership: true },
+        },
+        notifications: true,
       },
     });
     if (!row) throw new NotFoundException('Execução não encontrada.');
@@ -255,9 +270,133 @@ export class WorkflowService {
       result: row.result,
       createdAt: row.createdAt,
       finishedAt: row.finishedAt,
-      lead: row.lead?.data ? redactSensitiveData(row.lead.data) : null,
+      lead: row.lead
+        ? {
+            id: row.lead.id,
+            name: row.lead.name,
+            company: row.lead.company,
+            email: row.lead.email ? '***@***' : '',
+            budget: row.lead.budget,
+            score: row.lead.score,
+            status: row.lead.status,
+            assignedTo: row.lead.assignedMembership?.displayName ?? null,
+            tags: row.lead.tags,
+          }
+        : null,
       steps: row.steps,
+      notifications: row.notifications,
     };
+  }
+
+  async listLeads(organizationId: string, workflowId?: string, status?: string) {
+    const leads = await this.db.lead.findMany({
+      where: {
+        organizationId,
+        ...(workflowId ? { workflowId } : {}),
+        ...(status ? { status } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      include: {
+        assignedMembership: {
+          select: {
+            id: true,
+            displayName: true,
+            role: true,
+          },
+        },
+        _count: {
+          select: { executions: true, notifications: true },
+        },
+      },
+    });
+
+    return leads.map((l) => ({
+      id: l.id,
+      workflowId: l.workflowId,
+      eventKey: l.eventKey,
+      name: l.name,
+      email: l.email,
+      company: l.company,
+      budget: l.budget,
+      score: l.score,
+      source: l.source,
+      status: l.status,
+      tags: l.tags,
+      assignedMembership: l.assignedMembership,
+      executionsCount: l._count.executions,
+      notificationsCount: l._count.notifications,
+      createdAt: l.createdAt,
+      updatedAt: l.updatedAt,
+    }));
+  }
+
+  async getLead(id: string, organizationId: string) {
+    const lead = await this.db.lead.findFirst({
+      where: { id, organizationId },
+      include: {
+        assignedMembership: {
+          select: {
+            id: true,
+            displayName: true,
+            role: true,
+          },
+        },
+        executions: {
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          include: {
+            steps: { orderBy: { createdAt: 'asc' } },
+          },
+        },
+        notifications: {
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        },
+      },
+    });
+
+    if (!lead) throw new NotFoundException('Lead não encontrado.');
+    return lead;
+  }
+
+  async updateLead(
+    id: string,
+    organizationId: string,
+    data: { status?: string; assignedMembershipId?: string | null; tags?: string[] },
+  ) {
+    await this.getLead(id, organizationId);
+    const updated = await this.db.lead.update({
+      where: { id },
+      data: {
+        ...(data.status ? { status: data.status } : {}),
+        ...(data.assignedMembershipId !== undefined ? { assignedMembershipId: data.assignedMembershipId } : {}),
+        ...(data.tags ? { tags: data.tags } : {}),
+      },
+      include: {
+        assignedMembership: {
+          select: { id: true, displayName: true, role: true },
+        },
+      },
+    });
+    return updated;
+  }
+
+  async listNotifications(organizationId: string, leadId?: string) {
+    const notifications = await this.db.notification.findMany({
+      where: {
+        organizationId,
+        ...(leadId ? { leadId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        lead: {
+          select: { id: true, name: true, company: true, status: true },
+        },
+      },
+    });
+    return notifications;
   }
 
   async register(input: z.infer<typeof registerSchema>) {

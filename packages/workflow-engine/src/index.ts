@@ -112,7 +112,7 @@ export interface ProductionEffectHandlers {
   assignSdr?: (params: { team: string; lead: Lead }) => Promise<{ assignedTo?: string }>;
   wait?: (params: { minutes: number; lead: Lead }) => Promise<{ resumeAt?: string }>;
   addTag?: (params: { tag: string; lead: Lead }) => Promise<{ tags?: string[] }>;
-  notifyManager?: (params: { message: string; lead: Lead }) => Promise<{ delivered?: boolean }>;
+  notifyManager?: (params: { message: string; lead: Lead }) => Promise<{ delivered?: boolean; notificationId?: string }>;
 }
 
 export function createProductionEffects(handlers: ProductionEffectHandlers = {}): EffectAdapter {
@@ -178,9 +178,9 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
         }
         case 'manager.notify': {
           if (handlers.notifyManager) {
-            await handlers.notifyManager({ message: c.message, lead });
+            const res = await handlers.notifyManager({ message: c.message, lead });
             return {
-              output: { notified: true },
+              output: { notified: true, notificationId: res?.notificationId },
               message: 'Notificação enviada ao gestor com sucesso.',
             };
           }

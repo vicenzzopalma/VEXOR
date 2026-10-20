@@ -1,12 +1,24 @@
-
 'use client';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ArrowRight, Clock3, GitBranch, History, LoaderCircle, Plus, Search, Workflow } from 'lucide-react';
+import {
+  ArrowRight,
+  Clock3,
+  GitBranch,
+  History,
+  LoaderCircle,
+  Plus,
+  Search,
+  Workflow,
+  Zap,
+  Users,
+  UserCheck,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { api, type Run } from '@/lib/api';
+import { api, type Run, type ExecutionRecord, type LeadRecord } from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { RunLog } from './run-log';
+
 type Process = {
   id: string;
   name: string;
@@ -16,6 +28,7 @@ type Process = {
   versions: number;
   simulations: number;
 };
+
 export function ProcessList() {
   const [rows, setRows] = useState<Process[]>();
   const [error, setError] = useState('');
@@ -114,6 +127,7 @@ export function ProcessList() {
     </main>
   );
 }
+
 function Preview() {
   return (
     <div className="template-preview" aria-label="Prévia do processo SDR">
@@ -139,6 +153,7 @@ function Preview() {
     </div>
   );
 }
+
 export function TemplateList() {
   const router = useRouter();
   const [search, setSearch] = useState('');
@@ -256,36 +271,119 @@ export function TemplateList() {
     </main>
   );
 }
+
 export function RunList() {
-  const [rows, setRows] = useState<Run[]>();
+  const [tab, setTab] = useState<'real' | 'simulation'>('real');
+  const [realRuns, setRealRuns] = useState<ExecutionRecord[]>();
+  const [simRuns, setSimRuns] = useState<Run[]>();
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState<Run>();
+  const [selected, setSelected] = useState<any>();
+
   useEffect(() => {
-    api<Run[]>('/simulations')
-      .then(setRows)
-      .catch((e) => setError(e.message));
-  }, []);
-  if (!rows && !error) return <Loading />;
+    if (tab === 'real') {
+      api<ExecutionRecord[]>('/executions')
+        .then(setRealRuns)
+        .catch((e) => setError(e.message));
+    } else {
+      api<Run[]>('/simulations')
+        .then(setSimRuns)
+        .catch((e) => setError(e.message));
+    }
+  }, [tab]);
+
+  const loading = tab === 'real' ? !realRuns && !error : !simRuns && !error;
+  if (loading) return <Loading />;
+
   return (
     <main className="listing-page">
       <div className="listing-heading">
         <div>
-          <div className="eyebrow">Cada passo, com clareza</div>
-          <h1>Histórico de simulações</h1>
-          <p>Resultados persistidos no servidor. Nenhuma ação externa foi enviada.</p>
+          <div className="eyebrow">{tab === 'real' ? 'Operação em tempo real' : 'Cada passo, com clareza'}</div>
+          <h1>{tab === 'real' ? 'Histórico de execuções reais' : 'Histórico de simulações'}</h1>
+          <p>
+            {tab === 'real'
+              ? 'Execuções realizadas pelo motor e persistidas no PostgreSQL com SDR e notificações.'
+              : 'Resultados simulados no servidor. Nenhuma ação externa foi enviada.'}
+          </p>
         </div>
-        <Link href="/processos" className="btn">
-          Ver processos <ArrowRight size={14} />
-        </Link>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <Link href="/leads" className="btn">
+            Ver leads <ArrowRight size={14} />
+          </Link>
+          <Link href="/processos" className="btn">
+            Ver processos <ArrowRight size={14} />
+          </Link>
+        </div>
       </div>
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
+        <button
+          className={`btn ${tab === 'real' ? 'btn-primary' : ''}`}
+          onClick={() => setTab('real')}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <Zap size={15} />
+          Execuções Reais
+        </button>
+        <button
+          className={`btn ${tab === 'simulation' ? 'btn-primary' : ''}`}
+          onClick={() => setTab('simulation')}
+          style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+        >
+          <History size={15} />
+          Simulações
+        </button>
+      </div>
+
       {error && (
         <div className="validation-errors" role="alert">
           {error}
         </div>
       )}
-      {rows?.length ? (
+
+      {tab === 'real' ? (
+        realRuns?.length ? (
+          <div className="runs-list">
+            {realRuns.map((row) => (
+              <article className="run-card" key={row.id}>
+                <span className="table-icon" style={{ color: '#7c3aed' }}>
+                  <Zap size={18} />
+                </span>
+                <div>
+                  <h3>
+                    {row.leadSummary ? `${row.leadSummary.name} (${row.leadSummary.company})` : row.id}
+                  </h3>
+                  <p>
+                    {new Date(row.createdAt).toLocaleString('pt-BR')} ·{' '}
+                    {row.steps.filter((s) => s.status === 'success' || s.status === 'COMPLETED').length} etapas
+                    concluídas ·{' '}
+                    {row.leadSummary?.assignedTo ? `SDR: ${row.leadSummary.assignedTo}` : 'Sem atribuição'}
+                  </p>
+                </div>
+                <span
+                  className="success-pill"
+                  style={row.status === 'COMPLETED' ? { background: '#dcfce7', color: '#166534' } : {}}
+                >
+                  {row.status === 'COMPLETED' ? 'Concluída' : row.status}
+                </span>
+                <Button onClick={() => setSelected({ ...row, mode: 'real' })}>
+                  Consultar resultado <ArrowRight size={12} />
+                </Button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          !error && (
+            <div className="empty-state">
+              <Zap size={32} />
+              <h3>Nenhuma execução real registrada</h3>
+              <p>Envie um lead por webhook ou execute um teste real do processo publicado.</p>
+            </div>
+          )
+        )
+      ) : simRuns?.length ? (
         <div className="runs-list">
-          {rows.map((row) => (
+          {simRuns.map((row) => (
             <article className="run-card" key={row.id}>
               <span className="table-icon">
                 <History size={18} />
@@ -298,7 +396,7 @@ export function RunList() {
                 </p>
               </div>
               <span className="success-pill">{row.status === 'success' ? 'Concluída' : 'Falha'}</span>
-              <Button onClick={() => setSelected(row)}>
+              <Button onClick={() => setSelected({ ...row, mode: 'simulation' })}>
                 Consultar resultado <ArrowRight size={12} />
               </Button>
             </article>
@@ -316,9 +414,260 @@ export function RunList() {
           </div>
         )
       )}
+
       {selected && (
-        <Dialog title={`Simulação · ${selected.workflowName}`} wide onClose={() => setSelected(undefined)}>
+        <Dialog
+          title={
+            selected.mode === 'real'
+              ? `Execução Real · ${selected.leadSummary?.name || selected.id}`
+              : `Simulação · ${selected.workflowName}`
+          }
+          wide
+          onClose={() => setSelected(undefined)}
+        >
           <RunLog run={selected} onClose={() => setSelected(undefined)} />
+        </Dialog>
+      )}
+    </main>
+  );
+}
+
+export function LeadList() {
+  const [leads, setLeads] = useState<LeadRecord[]>();
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [selectedLead, setSelectedLead] = useState<LeadRecord>();
+
+  useEffect(() => {
+    api<LeadRecord[]>('/leads')
+      .then(setLeads)
+      .catch((e) => setError(e.message));
+  }, []);
+
+  if (!leads && !error) return <Loading />;
+
+  const filtered =
+    leads?.filter((l) => {
+      const matchesSearch =
+        l.name.toLowerCase().includes(search.toLowerCase()) ||
+        l.company.toLowerCase().includes(search.toLowerCase()) ||
+        l.email.toLowerCase().includes(search.toLowerCase());
+      const matchesStatus = statusFilter === 'ALL' || l.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    }) ?? [];
+
+  return (
+    <main className="listing-page">
+      <div className="listing-heading">
+        <div>
+          <div className="eyebrow">Gestão Comercial Ativa</div>
+          <h1>Leads & Oportunidades</h1>
+          <p>Leads reais recebidos por webhook ou formulário, classificados e atribuídos a responsáveis.</p>
+        </div>
+        <Link href="/execucoes" className="btn">
+          Ver execuções <ArrowRight size={14} />
+        </Link>
+      </div>
+
+      <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginBottom: '20px' }}>
+        <div className="listing-search" style={{ flex: 1, marginBottom: 0 }}>
+          <Search size={16} />
+          <input
+            aria-label="Buscar leads"
+            placeholder="Buscar por nome, empresa ou e-mail…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          style={{
+            padding: '10px 14px',
+            borderRadius: '8px',
+            border: '1px solid #d1d5db',
+            background: 'white',
+            fontSize: '13px',
+            color: '#374151',
+          }}
+        >
+          <option value="ALL">Todos os status</option>
+          <option value="QUALIFIED">Qualificados</option>
+          <option value="DISQUALIFIED">Desqualificados</option>
+          <option value="NEW">Novos</option>
+        </select>
+      </div>
+
+      {error && (
+        <div className="validation-errors" role="alert">
+          {error}
+        </div>
+      )}
+
+      {filtered.length ? (
+        <div className="table-overflow">
+          <table className="process-table">
+            <thead>
+              <tr>
+                <th>Lead / Empresa</th>
+                <th>Contato</th>
+                <th>Orçamento</th>
+                <th>Status</th>
+                <th>SDR Responsável</th>
+                <th>Notificações</th>
+                <th>Recebido em</th>
+                <th>
+                  <span className="sr-only">Ações</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((lead) => (
+                <tr key={lead.id}>
+                  <td>
+                    <strong>{lead.name}</strong>
+                    <div style={{ fontSize: '11px', color: '#64748b' }}>{lead.company}</div>
+                  </td>
+                  <td>{lead.email}</td>
+                  <td>R$ {lead.budget.toLocaleString('pt-BR')}</td>
+                  <td>
+                    <span
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background:
+                          lead.status === 'QUALIFIED'
+                            ? '#dcfce7'
+                            : lead.status === 'DISQUALIFIED'
+                            ? '#fee2e2'
+                            : '#fef3c7',
+                        color:
+                          lead.status === 'QUALIFIED'
+                            ? '#166534'
+                            : lead.status === 'DISQUALIFIED'
+                            ? '#991b1b'
+                            : '#92400e',
+                      }}
+                    >
+                      {lead.status === 'QUALIFIED'
+                        ? 'Qualificado'
+                        : lead.status === 'DISQUALIFIED'
+                        ? 'Desqualificado'
+                        : lead.status}
+                    </span>
+                  </td>
+                  <td>
+                    {lead.assignedMembership ? (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          color: '#15803d',
+                          fontWeight: 500,
+                        }}
+                      >
+                        <UserCheck size={14} />
+                        {lead.assignedMembership.displayName}
+                      </span>
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>Não atribuído</span>
+                    )}
+                  </td>
+                  <td>{lead.notificationsCount} gerada(s)</td>
+                  <td>
+                    {new Date(lead.createdAt).toLocaleString('pt-BR', {
+                      day: '2-digit',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </td>
+                  <td>
+                    <Button onClick={() => setSelectedLead(lead)}>Ver detalhes</Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        !error && (
+          <div className="empty-state">
+            <Users size={32} />
+            <h3>Nenhum lead comercial registrado</h3>
+            <p>Envie um lead por webhook ou execute um teste para vê-lo qualificado aqui.</p>
+          </div>
+        )
+      )}
+
+      {selectedLead && (
+        <Dialog title={`Lead · ${selectedLead.name}`} wide onClose={() => setSelectedLead(undefined)}>
+          <div style={{ padding: '8px 0', fontSize: '14px', lineHeight: 1.6 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '16px',
+                marginBottom: '20px',
+              }}
+            >
+              <div>
+                <p>
+                  <strong>Empresa:</strong> {selectedLead.company}
+                </p>
+                <p>
+                  <strong>E-mail:</strong> {selectedLead.email}
+                </p>
+                <p>
+                  <strong>Origem:</strong> {selectedLead.source}
+                </p>
+              </div>
+              <div>
+                <p>
+                  <strong>Orçamento:</strong> R$ {selectedLead.budget.toLocaleString('pt-BR')}
+                </p>
+                <p>
+                  <strong>Score de Qualificação:</strong> {selectedLead.score} / 100
+                </p>
+                <p>
+                  <strong>SDR Responsável:</strong>{' '}
+                  {selectedLead.assignedMembership?.displayName ?? 'Aguardando atribuição'}
+                </p>
+              </div>
+            </div>
+
+            {Array.isArray(selectedLead.tags) && selectedLead.tags.length > 0 && (
+              <div style={{ marginBottom: '16px' }}>
+                <strong>Etiquetas:</strong>
+                <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
+                  {selectedLead.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      style={{
+                        padding: '2px 8px',
+                        background: '#f1f5f9',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        color: '#475569',
+                      }}
+                    >
+                      #{tag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ textAlign: 'right', marginTop: '20px' }}>
+              <Button variant="primary" onClick={() => setSelectedLead(undefined)}>
+                Fechar
+              </Button>
+            </div>
+          </div>
         </Dialog>
       )}
     </main>

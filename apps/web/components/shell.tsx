@@ -2,7 +2,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Workflow, PanelsTopLeft, LayoutTemplate, History, CircleHelp, ArrowUpRight } from 'lucide-react';
+import { Workflow, PanelsTopLeft, LayoutTemplate, History, CircleHelp, ArrowUpRight, Users } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Dialog } from './ui';
 export function Shell({ children }: { children: ReactNode }) {
@@ -19,7 +19,8 @@ export function Shell({ children }: { children: ReactNode }) {
             { href: '/processos', icon: PanelsTopLeft, label: 'Meus processos' },
             { href: '/editor/starter-sdr', icon: Workflow, label: 'Editor de processos' },
             { href: '/templates', icon: LayoutTemplate, label: 'Modelos' },
-            { href: '/execucoes', icon: History, label: 'Simulações' },
+            { href: '/leads', icon: Users, label: 'Leads' },
+            { href: '/execucoes', icon: History, label: 'Execuções' },
           ].map(({ href, icon: Icon, label }) => (
             <Link
               key={href}
