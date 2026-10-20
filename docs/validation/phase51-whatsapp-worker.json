@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-10-20T19:51:57.525Z",
+  "evidenceType": "local-api-postgresql-worker-whatsapp-contract-fixture",
+  "providerConnection": "synthetic-CONNECTED-state; not provider-homologated",
+  "externalProviderRequests": 0,
+  "externalMessagesSent": 0,
+  "ingressAuthenticated": true,
+  "duplicateWebhookAccepted": true,
+  "inboxEventsForProviderEvent": 1,
+  "executionsForProviderEvent": 1,
+  "executionId": "f19b1a07-611d-4672-9a19-2e12403ebe78",
+  "executionStatus": "COMPLETED",
+  "attempt": 1,
+  "versionId": "a4c72828-2cc4-4211-8e0e-4784289f04ab",
+  "leadId": "1b6ea039-a7dd-4d02-9f53-03419ce06d49",
+  "leadCompanyUpdated": true,
+  "historyVisible": true,
+  "steps": 3
+}

@@ -1,5 +1,15 @@
 # Progresso
 
+## Fase 5.1 — estabilização local concluída; homologação externa pendente (20/10/2026)
+
+- Alinhadas as FKs/defaults comprovadamente divergentes e adicionados gatilhos PostgreSQL para impedir vínculos comerciais entre organizações. Migrações não destrutivas `202610200010_phase51_schema_alignment`, `202610200011_phase51_commercial_scope` e `202610200012_phase51_scope_dispatch` aplicadas; a última corrige um defeito encontrado pela regressão da própria guarda. Nenhum reset ou limpeza foi executado.
+- Regressões corrigidas: inbox presa com `processingAt` nulo; evento antigo de conversa sobrescrevia dados novos; mensagem recebida não era processada quando a conta caía após o aceite; retry de e-mail podia ultrapassar a janela de idempotência do provedor; webhook HMAC não vinculava o identificador de replay ao conteúdo assinado; resposta Meta baseada apenas no ID podia afirmar sessão conectada sem estado confirmado.
+- Configuração de conexão agora valida/decripta credenciais do provedor, respostas filtram settings e credenciais, segredo incorreto falha fechado e a configuração WhatsApp por padrão não faz chamadas externas. Alterações de conta são cercadas por uma revisão de configuração no despacho.
+- Build, lint, typecheck passaram. `npm test`: 74; integração: 66; E2E: 11 aprovados e um caso de arraste ignorado em celular. Replay isolado das 12 migrações concluiu sem diferença de schema. A comparação de fingerprints preservou 19 tabelas/2.926 registros antes dos testes que adicionaram fixtures.
+- Smoke com API, PostgreSQL e worker: webhook WhatsApp local assinado → inbox → fila → execução `COMPLETED` na tentativa 1 → lead atualizado → histórico visível. Evento e execução duplicados permaneceram únicos. A conta usou estado sintético; zero chamadas ou mensagens externas. Evidência: [phase51-whatsapp-worker.json](validation/phase51-whatsapp-worker.json).
+- Sem gateway Evolution, conta Meta, credenciais homologadas ou allowlist configurada. QR, pareamento e entrega real continuam pendentes; Evolution/Meta/Resend/Sheets não estão homologados. RD Station e HubSpot seguem em contrato preparatório; OAuth Sheets não completa callback/troca/renovação.
+- Detalhes, mapa de conectores, evidências, riscos e critérios objetivos da próxima autorização: [implementation-report-phase-5-1.md](implementation-report-phase-5-1.md). Fase 6 não iniciada.
+
 ## Fase 5 — implementação local verificada, homologação externa pendente
 
 Inspeção iniciada com Git limpo em `7b6c40e` e base de 46 testes unitários reexecutada. Preservados monorepo, editor, runner e tabelas comerciais existentes. Nenhum arquivo do Veritas foi acessado.
