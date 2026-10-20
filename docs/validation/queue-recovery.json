@@ -1,0 +1,31 @@
+{
+  "generatedAt": "2026-10-20T18:41:32.521Z",
+  "evidenceType": "local-postgresql-test",
+  "result": {
+    "executionId": "e82b97c6-16ba-4452-8f96-21dee09c430f",
+    "status": "COMPLETED",
+    "attempt": 2,
+    "attemptHistory": [
+      {
+        "status": "ABANDONED",
+        "attempt": 1,
+        "errorCode": "LEASE_EXPIRED",
+        "startedAt": "2026-10-20T18:41:17.356Z",
+        "durationMs": 15124,
+        "finishedAt": "2026-10-20T18:41:32.480Z"
+      },
+      {
+        "status": "COMPLETED",
+        "attempt": 2,
+        "errorCode": null,
+        "startedAt": "2026-10-20T18:41:32.480Z",
+        "durationMs": 34,
+        "finishedAt": "2026-10-20T18:41:32.514Z"
+      }
+    ],
+    "steps": 2,
+    "tags": [
+      "Lead qualificado"
+    ]
+  }
+}

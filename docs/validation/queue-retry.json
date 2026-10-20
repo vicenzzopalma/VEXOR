@@ -1,0 +1,19 @@
+{
+  "generatedAt": "2026-10-20T18:41:37.875Z",
+  "evidenceType": "local-postgresql-test",
+  "result": {
+    "executionId": "b204138e-3336-4a01-848a-c9223aa127c9",
+    "rolledBack": {
+      "status": "QUEUED",
+      "steps": 0,
+      "tags": []
+    },
+    "recovered": {
+      "status": "COMPLETED",
+      "attempt": 2,
+      "tags": [
+        "Lead qualificado"
+      ]
+    }
+  }
+}
