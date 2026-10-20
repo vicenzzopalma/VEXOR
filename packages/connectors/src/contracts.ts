@@ -9,7 +9,11 @@ export const connectionStates = [
   'ERROR',
 ] as const;
 const identifier = z.string().trim().min(1).max(200);
-const token = z.string().min(1).max(10000);
+const token = z
+  .string()
+  .min(1)
+  .max(10000)
+  .refine((value) => !/[\r\n]/.test(value), 'Credencial inválida.');
 export type FormField = {
   key: string;
   label: string;
@@ -261,4 +265,27 @@ export function publicConnectorCatalog() {
     implementation: definition.implementation,
     homologated: false,
   }));
+}
+
+export function publicConnectorSettings(provider: string, input: unknown): Record<string, unknown> {
+  const definition = connectorRegistry[provider];
+  if (!definition) return {};
+  const parsed = definition.settingsSchema.partial().strip().safeParse(input);
+  if (!parsed.success) return {};
+  const settings: Record<string, unknown> = parsed.data;
+  if (provider === 'META') {
+    const templates = z
+      .array(
+        z
+          .object({
+            name: z.string().regex(/^[a-z0-9_]{1,200}$/),
+            language: z.string().regex(/^[a-z]{2}(?:_[A-Z]{2})?$/),
+          })
+          .strip(),
+      )
+      .max(100)
+      .safeParse((input as Record<string, unknown>)?.approvedTemplates);
+    if (templates.success) settings.approvedTemplates = templates.data;
+  }
+  return settings;
 }

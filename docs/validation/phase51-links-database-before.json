@@ -1,0 +1,493 @@
+{
+  "generatedAt": "2026-10-20T19:40:36.139Z",
+  "mode": "before",
+  "tables": {
+    "DevelopmentSession": 4,
+    "Execution": 411,
+    "ExecutionStep": 1140,
+    "IntegrationConnection": 56,
+    "IntegrationEvent": 10,
+    "IntegrationOAuthAttempt": 6,
+    "Lead": 352,
+    "Membership": 21,
+    "Notification": 148,
+    "Organization": 126,
+    "Session": 17,
+    "Simulation": 31,
+    "User": 17,
+    "WebhookIngressLog": 83,
+    "WebhookRateBucket": 0,
+    "WhatsAppConnection": 25,
+    "WhatsAppEvent": 94,
+    "Workflow": 231,
+    "WorkflowVersion": 154
+  },
+  "migrations": [
+    {
+      "name": "202610200001_foundation",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200002_executions_and_auth",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200003_real_commercial_cycle",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200004_durable_execution_queue",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200005_whatsapp_connections",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200006_whatsapp_leads",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200007_execution_attempt_history",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200008_notification_connection_tenant",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200009_phase5_integrations",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    },
+    {
+      "name": "202610200010_phase51_schema_alignment",
+      "finished": true,
+      "rolledBack": false,
+      "matchesFile": true
+    }
+  ],
+  "constraints": [
+    {
+      "table": "\"DevelopmentSession\"",
+      "name": "DevelopmentSession_membershipId_fkey",
+      "definition": "FOREIGN KEY (\"membershipId\") REFERENCES \"Membership\"(id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table": "\"Execution\"",
+      "name": "Execution_lead_id_fkey",
+      "definition": "FOREIGN KEY (lead_id) REFERENCES \"Lead\"(id) ON DELETE SET NULL",
+      "validated": true
+    },
+    {
+      "table": "\"Execution\"",
+      "name": "Execution_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Execution\"",
+      "name": "Execution_version_id_organization_id_fkey",
+      "definition": "FOREIGN KEY (version_id, organization_id) REFERENCES \"WorkflowVersion\"(id, organization_id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Execution\"",
+      "name": "Execution_workflow_id_organization_id_fkey",
+      "definition": "FOREIGN KEY (workflow_id, organization_id) REFERENCES \"Workflow\"(id, organization_id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"ExecutionStep\"",
+      "name": "ExecutionStep_execution_id_fkey",
+      "definition": "FOREIGN KEY (execution_id) REFERENCES \"Execution\"(id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table": "\"IntegrationConnection\"",
+      "name": "IntegrationConnection_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"IntegrationEvent\"",
+      "name": "IntegrationEvent_integrationId_fkey",
+      "definition": "FOREIGN KEY (\"integrationId\") REFERENCES \"IntegrationConnection\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"IntegrationOAuthAttempt\"",
+      "name": "IntegrationOAuthAttempt_integrationId_organization_id_fkey",
+      "definition": "FOREIGN KEY (\"integrationId\", organization_id) REFERENCES \"IntegrationConnection\"(id, organization_id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table": "\"Lead\"",
+      "name": "Lead_assigned_membership_id_fkey",
+      "definition": "FOREIGN KEY (assigned_membership_id) REFERENCES \"Membership\"(id) ON DELETE SET NULL",
+      "validated": true
+    },
+    {
+      "table": "\"Lead\"",
+      "name": "Lead_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Lead\"",
+      "name": "Lead_workflow_id_organization_id_fkey",
+      "definition": "FOREIGN KEY (workflow_id, organization_id) REFERENCES \"Workflow\"(id, organization_id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Membership\"",
+      "name": "Membership_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id)",
+      "validated": true
+    },
+    {
+      "table": "\"Membership\"",
+      "name": "Membership_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES \"User\"(id) ON DELETE SET NULL",
+      "validated": true
+    },
+    {
+      "table": "\"Notification\"",
+      "name": "Notification_connection_tenant_fkey",
+      "definition": "FOREIGN KEY (\"connectionId\", organization_id) REFERENCES \"WhatsAppConnection\"(id, organization_id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Notification\"",
+      "name": "Notification_execution_id_fkey",
+      "definition": "FOREIGN KEY (execution_id) REFERENCES \"Execution\"(id) ON DELETE SET NULL",
+      "validated": true
+    },
+    {
+      "table": "\"Notification\"",
+      "name": "Notification_integrationId_organization_id_fkey",
+      "definition": "FOREIGN KEY (\"integrationId\", organization_id) REFERENCES \"IntegrationConnection\"(id, organization_id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Notification\"",
+      "name": "Notification_lead_id_fkey",
+      "definition": "FOREIGN KEY (lead_id) REFERENCES \"Lead\"(id) ON DELETE SET NULL",
+      "validated": true
+    },
+    {
+      "table": "\"Notification\"",
+      "name": "Notification_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table": "\"Session\"",
+      "name": "Session_user_id_fkey",
+      "definition": "FOREIGN KEY (user_id) REFERENCES \"User\"(id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table": "\"Simulation\"",
+      "name": "Simulation_workflowId_organization_id_fkey",
+      "definition": "FOREIGN KEY (\"workflowId\", organization_id) REFERENCES \"Workflow\"(id, organization_id) ON DELETE CASCADE",
+      "validated": true
+    },
+    {
+      "table": "\"User\"",
+      "name": "User_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"WebhookIngressLog\"",
+      "name": "WebhookIngressLog_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE SET NULL",
+      "validated": true
+    },
+    {
+      "table": "\"WhatsAppConnection\"",
+      "name": "WhatsAppConnection_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"WhatsAppEvent\"",
+      "name": "WhatsAppEvent_connectionId_fkey",
+      "definition": "FOREIGN KEY (\"connectionId\") REFERENCES \"WhatsAppConnection\"(id) ON DELETE RESTRICT",
+      "validated": true
+    },
+    {
+      "table": "\"Workflow\"",
+      "name": "Workflow_organization_id_fkey",
+      "definition": "FOREIGN KEY (organization_id) REFERENCES \"Organization\"(id)",
+      "validated": true
+    },
+    {
+      "table": "\"WorkflowVersion\"",
+      "name": "WorkflowVersion_workflowId_organization_id_fkey",
+      "definition": "FOREIGN KEY (\"workflowId\", organization_id) REFERENCES \"Workflow\"(id, organization_id) ON DELETE CASCADE",
+      "validated": true
+    }
+  ],
+  "defaults": [
+    {
+      "table": "Execution",
+      "column": "attempt",
+      "default": "0"
+    },
+    {
+      "table": "Execution",
+      "column": "attemptHistory",
+      "default": "'[]'::jsonb"
+    },
+    {
+      "table": "Execution",
+      "column": "availableAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Execution",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Execution",
+      "column": "maxAttempts",
+      "default": "3"
+    },
+    {
+      "table": "Execution",
+      "column": "status",
+      "default": "'QUEUED'::\"ExecutionStatus\""
+    },
+    {
+      "table": "ExecutionStep",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "ExecutionStep",
+      "column": "duration_ms",
+      "default": "0"
+    },
+    {
+      "table": "IntegrationConnection",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "IntegrationConnection",
+      "column": "enabled",
+      "default": "false"
+    },
+    {
+      "table": "IntegrationConnection",
+      "column": "state",
+      "default": "'DISCONNECTED'::text"
+    },
+    {
+      "table": "IntegrationEvent",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "IntegrationOAuthAttempt",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Lead",
+      "column": "budget",
+      "default": "0"
+    },
+    {
+      "table": "Lead",
+      "column": "company",
+      "default": "''::text"
+    },
+    {
+      "table": "Lead",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Lead",
+      "column": "email",
+      "default": "''::text"
+    },
+    {
+      "table": "Lead",
+      "column": "name",
+      "default": "'Lead sem nome'::text"
+    },
+    {
+      "table": "Lead",
+      "column": "phone",
+      "default": "''::text"
+    },
+    {
+      "table": "Lead",
+      "column": "score",
+      "default": "0"
+    },
+    {
+      "table": "Lead",
+      "column": "source",
+      "default": "'webhook'::text"
+    },
+    {
+      "table": "Lead",
+      "column": "status",
+      "default": "'NEW'::text"
+    },
+    {
+      "table": "Lead",
+      "column": "tags",
+      "default": "'[]'::jsonb"
+    },
+    {
+      "table": "Lead",
+      "column": "updatedAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Lead",
+      "column": "whatsappConsent",
+      "default": "false"
+    },
+    {
+      "table": "Notification",
+      "column": "attempt",
+      "default": "0"
+    },
+    {
+      "table": "Notification",
+      "column": "availableAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Notification",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Notification",
+      "column": "status",
+      "default": "'PENDING'::text"
+    },
+    {
+      "table": "Organization",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Session",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Simulation",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "User",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "User",
+      "column": "role",
+      "default": "'editor'::text"
+    },
+    {
+      "table": "WebhookIngressLog",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "WhatsAppConnection",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "WhatsAppConnection",
+      "column": "enabled",
+      "default": "false"
+    },
+    {
+      "table": "WhatsAppConnection",
+      "column": "state",
+      "default": "'DISCONNECTED'::text"
+    },
+    {
+      "table": "WhatsAppEvent",
+      "column": "attempt",
+      "default": "0"
+    },
+    {
+      "table": "WhatsAppEvent",
+      "column": "availableAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "WhatsAppEvent",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "WhatsAppEvent",
+      "column": "routing",
+      "default": "'[]'::jsonb"
+    },
+    {
+      "table": "WhatsAppEvent",
+      "column": "status",
+      "default": "'COMPLETED'::text"
+    },
+    {
+      "table": "Workflow",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "Workflow",
+      "column": "revision",
+      "default": "1"
+    },
+    {
+      "table": "WorkflowVersion",
+      "column": "createdAt",
+      "default": "CURRENT_TIMESTAMP"
+    },
+    {
+      "table": "_prisma_migrations",
+      "column": "applied_steps_count",
+      "default": "0"
+    },
+    {
+      "table": "_prisma_migrations",
+      "column": "started_at",
+      "default": "now()"
+    }
+  ]
+}

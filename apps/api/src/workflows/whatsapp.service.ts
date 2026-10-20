@@ -16,6 +16,9 @@ import {
   verifySignature,
   whatsappAdapter,
   parseWhatsAppEvents,
+  connectorRegistry,
+  connectorConfigurationReady,
+  publicConnectorSettings,
   type Secrets,
   type Settings,
 } from '@eimax/connectors';
@@ -83,13 +86,13 @@ export class WhatsAppService {
       name: row.name,
       provider: row.provider,
       state: row.state,
-      settings: row.settings,
+      settings: publicConnectorSettings(row.provider, row.settings),
       credentialsConfigured: !!row.credentials,
       lastError: row.lastError,
       checkedAt: row.checkedAt,
       updatedAt: row.updatedAt,
       configurationRequired:
-        !row.credentials ||
+        !connectorConfigurationReady(row.provider, row.settings, row.credentials) ||
         process.env.WHATSAPP_EXTERNAL_ENABLED !== 'true' ||
         !process.env.CONNECTOR_ENCRYPTION_KEY,
       webhookPath: `/webhooks/whatsapp/${row.id}`,
@@ -118,8 +121,9 @@ export class WhatsAppService {
       throw new ConflictException('Recarregue a conta antes de salvar.');
     let credentials = existing?.credentials;
     if (input.credentials && Object.keys(input.credentials).length) {
+      const validated = parse(connectorRegistry[input.provider].credentialsSchema, input.credentials);
       try {
-        credentials = sealSecrets(input.credentials);
+        credentials = sealSecrets(validated);
       } catch {
         throw new BadRequestException('Configure a chave de criptografia de conectores no servidor.');
       }
@@ -230,7 +234,12 @@ export class WhatsAppService {
   async verify(id: string, mode: string, token: string, challenge: string) {
     const row = await this.db.whatsAppConnection.findUnique({ where: { id } });
     if (!row?.credentials || row.provider !== 'META') throw new HttpException('Webhook não autorizado.', 401);
-    const secrets = openSecrets(row.credentials);
+    let secrets: Secrets;
+    try {
+      secrets = openSecrets(row.credentials);
+    } catch {
+      throw new HttpException('Webhook não autorizado.', 401);
+    }
     if (mode !== 'subscribe' || !secrets.verifyToken || !equalSecret(token, secrets.verifyToken))
       throw new HttpException('Webhook não autorizado.', 401);
     return challenge;

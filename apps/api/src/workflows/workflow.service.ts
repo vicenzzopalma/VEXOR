@@ -589,11 +589,15 @@ export class WorkflowService {
       typeof credential === 'string'
         ? !!secret && equalSecret(secret, credential)
         : credential?.mode === 'hmac' &&
+          typeof credential.secret === 'string' &&
           !!signing &&
           /^\d{10}$/.test(signing.timestamp) &&
           Math.abs(Date.now() / 1000 - Number(signing.timestamp)) <= 300 &&
           verifySignature(
-            Buffer.concat([Buffer.from(`${signing.timestamp}.`), signing.raw]),
+            Buffer.concat([
+              Buffer.from(`${signing.timestamp}.${eventKeyHeader ? `${eventKeyHeader}.` : ''}`),
+              signing.raw,
+            ]),
             signing.signature,
             credential.secret,
           );
@@ -601,7 +605,7 @@ export class WorkflowService {
       throw new HttpException('Webhook não autorizado.', 401);
     }
 
-    if (eventKeyHeader && eventKeyHeader.length > 200)
+    if (eventKeyHeader !== undefined && (!eventKeyHeader.length || eventKeyHeader.length > 200))
       throw new BadRequestException('Identificador de evento inválido.');
     const eventKey = eventKeyHeader ?? hash(JSON.stringify(body));
     const result = await this.enqueue({

@@ -42,7 +42,8 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
           const versions = await tx.workflowVersion.findMany({
             where: { id: { in: event.routing as string[] }, organizationId: connection.organizationId },
           });
-          if (versions.length !== (event.routing as string[]).length) throw new Error('INVALID_EVENT_ROUTING');
+          if (versions.length !== (event.routing as string[]).length)
+            throw new Error('INVALID_EVENT_ROUTING');
           for (const version of versions) {
             const flow = version.snapshot as unknown as Workflow;
             if (
@@ -58,6 +59,7 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
               eventKey: `whatsapp:${connection.id}:${event.providerEventId}`,
               externalContactKey: `${connection.id}:${payload.from}`,
               inboundAt,
+              sourceEvent: { id: event.id, createdAt: event.createdAt },
               leadData: {
                 name: payload.name || 'Contato WhatsApp',
                 company: 'Não informada',

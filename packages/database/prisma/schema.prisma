@@ -32,7 +32,7 @@ model Organization {
 model Membership {
   id             String               @id @default(uuid())
   organizationId String               @map("organization_id")
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   userId         String?              @map("user_id")
   user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   displayName    String
@@ -83,7 +83,7 @@ model Session {
 model Workflow {
   id             String            @id @default(uuid())
   organizationId String            @map("organization_id")
-  organization   Organization      @relation(fields: [organizationId], references: [id], onUpdate: NoAction)
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   draft          Json
   revision       Int               @default(1)
   createdAt      DateTime          @default(now())

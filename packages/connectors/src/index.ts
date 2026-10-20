@@ -9,6 +9,7 @@ import {
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
+import { connectorRegistry } from './contracts';
 export * from './contracts';
 export * from './whatsapp-events';
 
@@ -65,11 +66,45 @@ export function sealSecrets(value: Secrets) {
   return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64');
 }
 export function openSecrets(value: string): Secrets {
-  const data = Buffer.from(value, 'base64');
-  if (data.length < 28) throw new ConnectorError('INVALID_CREDENTIALS');
-  const cipher = createDecipheriv('aes-256-gcm', encryptionKey(), data.subarray(0, 12));
-  cipher.setAuthTag(data.subarray(12, 28));
-  return JSON.parse(Buffer.concat([cipher.update(data.subarray(28)), cipher.final()]).toString('utf8'));
+  const key = encryptionKey();
+  try {
+    const data = Buffer.from(value, 'base64');
+    if (data.length < 28) throw new Error('Malformed ciphertext');
+    const cipher = createDecipheriv('aes-256-gcm', key, data.subarray(0, 12));
+    cipher.setAuthTag(data.subarray(12, 28));
+    return JSON.parse(Buffer.concat([cipher.update(data.subarray(28)), cipher.final()]).toString('utf8'));
+  } catch {
+    throw new ConnectorError('INVALID_CREDENTIALS');
+  }
+}
+// A read-only session refresh must not invalidate queued messages; an account/settings/secret change must.
+export function connectionRevision(row: {
+  id: string;
+  organizationId: string;
+  provider: string;
+  settings: unknown;
+  credentials: string | null;
+}) {
+  const definition = connectorRegistry[row.provider];
+  if (!definition) throw new ConnectorError('PROVIDER_NOT_SUPPORTED');
+  const settings = definition.settingsSchema.strip().parse(row.settings);
+  const canonical = Object.fromEntries(Object.entries(settings).sort(([a], [b]) => a.localeCompare(b)));
+  return `cfg1:${createHash('sha256')
+    .update(JSON.stringify([row.id, row.organizationId, row.provider, canonical, row.credentials]))
+    .digest('hex')}`;
+}
+export function connectorConfigurationReady(provider: string, settings: unknown, ciphertext: string | null) {
+  try {
+    const definition = connectorRegistry[provider];
+    return (
+      !!definition &&
+      !!ciphertext &&
+      definition.settingsSchema.strip().safeParse(settings).success &&
+      definition.credentialsSchema.safeParse(openSecrets(ciphertext)).success
+    );
+  } catch {
+    return false;
+  }
 }
 export function equalSecret(actual: string, expected: string) {
   return timingSafeEqual(
@@ -176,11 +211,15 @@ export const secureTransport: Transport = async (url, method, headers, body) => 
   });
 };
 
+const whatsappTransport: Transport = (...args) => {
+  if (process.env.WHATSAPP_EXTERNAL_ENABLED !== 'true') throw new ConnectorError('CONFIGURATION_REQUIRED');
+  return secureTransport(...args);
+};
 export function whatsappAdapter(
   provider: string,
   settings: Settings,
   secrets: Secrets,
-  transport: Transport = secureTransport,
+  transport: Transport = whatsappTransport,
 ) {
   const origin = validateOrigin(
     provider === 'META' ? 'https://graph.facebook.com' : (settings.origin ?? ''),
@@ -238,12 +277,16 @@ export function whatsappAdapter(
     async status(): Promise<ConnectionState> {
       const result = await call(
         provider === 'META'
-          ? `${metaPath}?fields=id,display_phone_number`
+          ? `${metaPath}?fields=id,display_phone_number,status`
           : `/instance/connectionState/${settings.instance}`,
       );
       if (provider === 'META') {
         if (result.id !== settings.phoneNumberId) throw new ConnectorError('INVALID_PROVIDER_RESPONSE');
-        return 'CONNECTED';
+        if (result.status === 'CONNECTED') return 'CONNECTED';
+        if (result.status === 'PENDING') return 'CONNECTING';
+        if (['DISCONNECTED', 'UNVERIFIED'].includes(result.status)) return 'DISCONNECTED';
+        if (['FLAGGED', 'RESTRICTED', 'BANNED', 'RATE_LIMITED'].includes(result.status)) return 'ERROR';
+        throw new ConnectorError('SESSION_STATUS_UNCONFIRMED');
       }
       const state = result.instance?.state;
       if (['open', 'connected'].includes(state)) return 'CONNECTED';

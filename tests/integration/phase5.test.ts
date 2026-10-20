@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import { PrismaClient } from '@prisma/client';
-import { sealSecrets } from '@eimax/connectors';
+import { connectionRevision, sealSecrets } from '@eimax/connectors';
 import { dispatchNextEmail, dispatchNextWhatsApp, enqueueWorkflowExecution } from '@eimax/workflow-runtime';
 import { createSdrTemplate, sampleLead, type Workflow } from '@eimax/workflow-schema';
 import { waitForExecution } from './helpers';
@@ -52,14 +52,14 @@ it('WhatsApp repete rejeição explícita 429 e exige conciliação para respost
     recipient: lead.phone!,
     title: 'Fixture',
     message: 'Fixture',
-    payload: { to: lead.phone!, text: 'Fixture' },
+    payload: { to: lead.phone!, text: 'Fixture', connectionRevision: connectionRevision(connection) },
   };
   const notification = await db.notification.create({ data });
   const transport = vi
     .fn()
-    .mockResolvedValueOnce({ id: '1234' })
+    .mockResolvedValueOnce({ id: '1234', status: 'CONNECTED' })
     .mockRejectedValueOnce(new ConnectorError('PROVIDER_HTTP_429', true, 5000))
-    .mockResolvedValueOnce({ id: '1234' })
+    .mockResolvedValueOnce({ id: '1234', status: 'CONNECTED' })
     .mockResolvedValueOnce({ messages: [{ id: randomUUID() }] });
   expect((await dispatchNextWhatsApp(db, transport))?.status).toBe('PENDING');
   await dispatchNextWhatsApp(db, transport);
@@ -73,7 +73,7 @@ it('WhatsApp repete rejeição explícita 429 e exige conciliação para respost
   const second = await db.notification.create({ data });
   const ambiguous = vi
     .fn()
-    .mockResolvedValueOnce({ id: '1234' })
+    .mockResolvedValueOnce({ id: '1234', status: 'CONNECTED' })
     .mockRejectedValueOnce(new ConnectorError('PROVIDER_REQUEST_UNCERTAIN'));
   expect((await dispatchNextWhatsApp(db, ambiguous))?.errorCode).toBe('PROVIDER_REQUEST_UNCERTAIN');
   expect((await db.notification.findUniqueOrThrow({ where: { id: second.id } })).status).toBe('FAILED');
@@ -337,14 +337,17 @@ describe.sequential('Fase 5: API e PostgreSQL locais, sem serviços externos', (
       data: { organizationId: 'org-local', workflowId: workflow.id, number: 1, snapshot: flow },
     });
     const raw = JSON.stringify({ ...sampleLead, name: `HMAC ${randomUUID()}` });
-    async function signed(timestamp: string, altered = false) {
-      const signature = `sha256=${createHmac('sha256', sessions.webhook).update(`${timestamp}.${raw}`).digest('hex')}`;
+    async function signed(timestamp: string, altered = false, eventKey?: string, bindEventKey = false) {
+      const signature = `sha256=${createHmac('sha256', sessions.webhook)
+        .update(`${timestamp}.${bindEventKey && eventKey ? `${eventKey}.` : ''}${raw}`)
+        .digest('hex')}`;
       return fetch(`http://127.0.0.1:4000/webhooks/${workflow.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-vexor-timestamp': timestamp,
           'x-vexor-signature': signature,
+          ...(eventKey !== undefined ? { 'x-eimax-event-key': eventKey } : {}),
         },
         body: altered ? raw + ' ' : raw,
       });
@@ -353,6 +356,11 @@ describe.sequential('Fase 5: API e PostgreSQL locais, sem serviços externos', (
     expect((await signed(timestamp, true)).status).toBe(401);
     expect((await signed(String(Math.floor(Date.now() / 1000) - 600))).status).toBe(401);
     expect((await signed(timestamp)).status).toBe(201);
+    expect((await signed(timestamp, false, 'unsigned-replay-key')).status).toBe(401);
+    expect((await signed(timestamp, false, '')).status).toBe(400);
+    expect(
+      (await signed(timestamp, false, createHash('sha256').update(raw).digest('hex'), true)).status,
+    ).toBe(201);
     expect((await signed(timestamp)).status).toBe(201);
     expect(await db.execution.count({ where: { workflowId: workflow.id } })).toBe(1);
     const execution = await db.execution.findFirstOrThrow({ where: { workflowId: workflow.id } });

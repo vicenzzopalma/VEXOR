@@ -1,9 +1,19 @@
 import { randomUUID } from 'node:crypto';
 import { type PrismaClient } from '@prisma/client';
-import { ConnectorError, openSecrets, resendAdapter, type Transport } from '@eimax/connectors';
+import {
+  ConnectorError,
+  connectionRevision,
+  openSecrets,
+  resendAdapter,
+  type Transport,
+} from '@eimax/connectors';
 
 export async function reserveDelivery(db: PrismaClient, channel: 'EMAIL' | 'WHATSAPP') {
-  const expired = { channel, status: 'PROCESSING', processingAt: { lt: new Date(Date.now() - 60000) } };
+  const expired = {
+    channel,
+    status: 'PROCESSING',
+    OR: [{ processingAt: null }, { processingAt: { lt: new Date(Date.now() - 60000) } }],
+  };
   if (channel === 'EMAIL')
     await db.notification.updateMany({
       where: {
@@ -76,6 +86,9 @@ export async function dispatchNextEmail(db: PrismaClient, transport?: Transport)
   const job = await reserveDelivery(db, 'EMAIL');
   if (!job) return null;
   try {
+    // Pending retries can survive worker downtime longer than the provider's key retention.
+    if (job.attempt > 1 && Date.now() - job.createdAt.getTime() >= 23 * 3600000)
+      throw new ConnectorError('IDEMPOTENCY_WINDOW_EXPIRED_RECONCILIATION_REQUIRED');
     const connection = job.integrationId
       ? await db.integrationConnection.findFirst({
           where: {
@@ -97,7 +110,10 @@ export async function dispatchNextEmail(db: PrismaClient, transport?: Transport)
       connectionRevision: string;
     };
     if (
-      payload.connectionRevision !== connection.updatedAt.toISOString() ||
+      payload.connectionRevision !==
+        (payload.connectionRevision?.startsWith('cfg1:')
+          ? connectionRevision(connection)
+          : connection.updatedAt.toISOString()) ||
       payload.from !== (connection.settings as any).from
     )
       throw new ConnectorError('CONNECTION_CHANGED');

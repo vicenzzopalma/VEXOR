@@ -10,6 +10,7 @@ import {
   type SendPayload,
   type Transport,
   ConnectorError,
+  connectionRevision,
 } from '@eimax/connectors';
 
 const include = { steps: { orderBy: { createdAt: 'asc' as const } } };
@@ -22,6 +23,7 @@ export interface EnqueueParams {
   versionId?: string;
   externalContactKey?: string;
   inboundAt?: Date;
+  sourceEvent?: { id: string; createdAt: Date };
 }
 
 export async function enqueueInTransaction(
@@ -44,7 +46,12 @@ export async function enqueueInTransaction(
   if (!version) throw new Error('Publique uma versão válida antes de executar.');
   const issues = validateWorkflow(version.snapshot as unknown as Workflow);
   if (issues.length) throw new Error('A versão publicada é inválida.');
-  await validateConnections(tx, version.snapshot as unknown as Workflow, organizationId);
+  await validateConnections(
+    tx,
+    version.snapshot as unknown as Workflow,
+    organizationId,
+    !!params.sourceEvent,
+  );
   const persisted = params.externalContactKey
     ? await tx.lead.upsert({
         where: {
@@ -83,6 +90,14 @@ export async function enqueueInTransaction(
         phone: persisted.phone,
         budget: persisted.budget,
         score: persisted.score,
+        ...(params.sourceEvent
+          ? {
+              _event: {
+                id: params.sourceEvent.id,
+                orderKey: `${(params.inboundAt ?? params.sourceEvent.createdAt).toISOString()}:${params.sourceEvent.createdAt.toISOString()}:${params.sourceEvent.id}`,
+              },
+            }
+          : {}),
       },
     },
     include,
@@ -181,20 +196,30 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
           execution.version.workflowId !== execution.workflowId
         )
           throw new Error('INVALID_EXECUTION_CONTEXT');
-        const lead = leadSchema.parse(execution.eventData ?? execution.lead.data);
+        const context = execution.eventData ?? execution.lead.data;
+        const { _event, ...leadContext } = context as Record<string, Prisma.JsonValue>;
+        const sourceEvent = _event as { id?: string; orderKey?: string } | undefined;
+        const lead = leadSchema.parse(leadContext);
         const organizationId = execution.organizationId;
         const leadId = execution.lead.id;
         // Different message events may share a lead; serialize their local mutations as well.
         await tx.$queryRaw`SELECT "id" FROM "Lead" WHERE "id"=${leadId} AND "organization_id"=${organizationId} FOR UPDATE`;
-        await validateConnections(tx, execution.version.snapshot as unknown as Workflow, organizationId);
+        await validateConnections(
+          tx,
+          execution.version.snapshot as unknown as Workflow,
+          organizationId,
+          !!sourceEvent || execution.eventKey.startsWith('whatsapp:'),
+        );
         const effects = createProductionEffects({
           updateConversationLead: async ({ field, value }) => {
             if (!execution.eventKey.startsWith('whatsapp:')) throw new Error('WHATSAPP_CONTEXT_REQUIRED');
             const current = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
-            const newer = await tx.execution.findFirst({
-              where: { leadId, organizationId, createdAt: { gt: execution.createdAt } },
-            });
-            if (newer) return { updated: false };
+            const orderKey = sourceEvent?.orderKey ?? execution.createdAt.toISOString();
+            const newer = await tx.$queryRaw<
+              Array<{ id: string }>
+            >`SELECT "id" FROM "Execution" WHERE "lead_id"=${leadId} AND "organization_id"=${organizationId} AND "id"<>${execution.id}
+              AND COALESCE("eventData" #>> '{_event,orderKey}', to_char("createdAt", 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')) > ${orderKey} LIMIT 1`;
+            if (newer.length) return { updated: false };
             const data = { ...(current.data as Record<string, Prisma.JsonValue>), [field]: value };
             await tx.lead.update({ where: { id: leadId }, data: { [field]: value, data } });
             return { updated: true };
@@ -237,7 +262,10 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
                     ? 'Mensagem WhatsApp'
                     : `Template ${node.config.template}`,
                 message: payload.text ?? '',
-                payload: payload as Prisma.InputJsonValue,
+                payload: {
+                  ...payload,
+                  connectionRevision: connectionRevision(connection),
+                } as Prisma.InputJsonValue,
                 status: 'PENDING',
               },
             });
@@ -344,7 +372,7 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
                     subject,
                     text: body,
                     from: String((connection.settings as any).from),
-                    connectionRevision: connection.updatedAt.toISOString(),
+                    connectionRevision: connectionRevision(connection),
                   },
                 },
               });
@@ -458,6 +486,7 @@ export async function validateConnections(
   db: Prisma.TransactionClient,
   flow: Workflow,
   organizationId: string,
+  persistedInbound = false,
 ) {
   for (const node of flow.nodes.filter((n) => n.type === 'email.send' && n.config.connectionId)) {
     const connection = await db.integrationConnection.findFirst({
@@ -478,7 +507,13 @@ export async function validateConnections(
     const connection = await db.whatsAppConnection.findFirst({
       where: { id: String(node.config.connectionId), organizationId },
     });
-    if (!connection || connection.state !== 'CONNECTED' || !connection.enabled || !connection.credentials)
+    const inboundTrigger = persistedInbound && node.type === 'whatsapp.message.received';
+    if (
+      !connection ||
+      (!inboundTrigger && connection.state !== 'CONNECTED') ||
+      !connection.enabled ||
+      !connection.credentials
+    )
       throw new Error('WHATSAPP_CONNECTION_UNAVAILABLE');
     if (node.type === 'whatsapp.conversation.started')
       throw new Error('WHATSAPP_CONVERSATION_EVENT_NOT_SUPPORTED');
@@ -526,7 +561,10 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient, transport?: Tra
       notification.lead.organizationId !== notification.organizationId
     )
       throw new ConnectorError('CONSENT_REQUIRED');
-    const payload = notification.payload as unknown as SendPayload;
+    const payload = notification.payload as unknown as SendPayload & { connectionRevision?: string };
+    if (!payload.connectionRevision) throw new ConnectorError('CONNECTION_REVISION_REQUIRED');
+    if (payload.connectionRevision !== connectionRevision(connection))
+      throw new ConnectorError('CONNECTION_CHANGED');
     if (payload.to !== notification.lead.phone) throw new ConnectorError('RECIPIENT_CHANGED');
     if (
       payload.text &&
@@ -548,7 +586,14 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient, transport?: Tra
       transport,
     );
     // Recheck the session at dispatch time, not only at publication time.
-    if ((await adapter.status()) !== 'CONNECTED') throw new ConnectorError('SESSION_DISCONNECTED');
+    const sessionState = await adapter.status();
+    if (sessionState !== 'CONNECTED') {
+      await prisma.whatsAppConnection.updateMany({
+        where: { id: connection.id, updatedAt: connection.updatedAt },
+        data: { state: sessionState, checkedAt: new Date(), lastError: 'SESSION_DISCONNECTED' },
+      });
+      throw new ConnectorError('SESSION_DISCONNECTED');
+    }
     const result = await adapter.send(payload);
     const receipts = await prisma.whatsAppEvent.findMany({
       where: { connectionId: connection.id, providerEventId: result.providerMessageId },

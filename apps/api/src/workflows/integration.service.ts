@@ -23,6 +23,8 @@ import {
   verifyResendWebhook,
   resendEventSchema,
   ConnectorError,
+  connectorConfigurationReady,
+  publicConnectorSettings,
 } from '@eimax/connectors';
 import { WorkflowService } from './workflow.service';
 import { parse } from './contracts';
@@ -73,15 +75,15 @@ export class IntegrationService {
       provider: row.provider,
       state: row.state,
       enabled: row.enabled,
-      settings: row.settings,
+      settings: publicConnectorSettings(row.provider, row.settings),
       credentialsConfigured: !!row.credentials,
       updatedAt: row.updatedAt,
       lastError: row.lastError,
       configurationRequired:
         flag !== 'true' ||
-        !row.credentials ||
+        !connectorConfigurationReady(row.provider, row.settings, row.credentials) ||
         !process.env.CONNECTOR_ENCRYPTION_KEY ||
-        connectorRegistry[row.provider].implementation === 'contract',
+        connectorRegistry[row.provider]?.implementation !== 'adapter',
       homologated: false,
     };
   }
