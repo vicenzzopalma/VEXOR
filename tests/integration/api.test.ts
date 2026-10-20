@@ -188,8 +188,127 @@ describe('Persistência, revisão e versões', () => {
     expect(
       (await request(`/workflows/${a.id}/simulations`)).data.some((r: any) => r.id === result.data.id),
     ).toBe(true);
-    expect((await request('/simulations', 'other')).data.some((r: any) => r.id === result.data.id)).toBe(
-      false,
-    );
+    expect((await request('/simulations', 'other')).data.some((r: any) => r.id === result.data.id)).toBe(false);
+  });
+});
+
+describe('Fase 2: Execução real de workflows e idempotência', () => {
+  it('executa workflow com sucesso, persiste etapas e protege dados confidenciais', async () => {
+    const eventKey = `evt-test-${Date.now()}`;
+    const res = await request(`/workflows/${a.id}/execute`, 'owner', 'POST', {
+      lead: sampleLead,
+      eventKey,
+    });
+    expect(res.status).toBe(201);
+    expect(res.data.status).toBe('COMPLETED');
+    expect(res.data.idempotentHit).toBe(false);
+    expect(res.data.steps.length).toBeGreaterThan(0);
+    expect(res.data.steps.some((s: any) => s.nodeType === 'sdr.assign' && s.status === 'success')).toBe(true);
+
+    // Idempotency: re-running with same eventKey returns exact same execution
+    const duplicate = await request(`/workflows/${a.id}/execute`, 'owner', 'POST', {
+      lead: sampleLead,
+      eventKey,
+    });
+    expect(duplicate.status).toBe(201);
+    expect(duplicate.data.id).toBe(res.data.id);
+    expect(duplicate.data.idempotentHit).toBe(true);
+
+    // Details retrieval
+    const detail = await request(`/executions/${res.data.id}`, 'owner');
+    expect(detail.status).toBe(200);
+    expect(detail.data.id).toBe(res.data.id);
+    expect(detail.data.steps.length).toBe(res.data.steps.length);
+
+    // Tenant isolation: Company B cannot see Company A's execution
+    const isolation = await request(`/executions/${res.data.id}`, 'other');
+    expect(isolation.status).toBe(404);
+
+    const listB = await request('/executions', 'other');
+    expect(listB.data.some((e: any) => e.id === res.data.id)).toBe(false);
+  });
+});
+
+describe('Fase 3: Autenticação de produção, CPF criptografado e login', () => {
+  const testEmail = `gestor.${Date.now()}@vexor-crm.com.br`;
+  const validCpf = (() => {
+    const d = Array.from({ length: 9 }, () => Math.floor(Math.random() * 10));
+    if (d.every((x) => x === d[0])) d[0] = (d[0] + 1) % 10;
+    let s1 = 0;
+    for (let i = 0; i < 9; i++) s1 += d[i] * (10 - i);
+    let v1 = (s1 * 10) % 11;
+    if (v1 === 10) v1 = 0;
+    d.push(v1);
+    let s2 = 0;
+    for (let i = 0; i < 10; i++) s2 += d[i] * (11 - i);
+    let v2 = (s2 * 10) % 11;
+    if (v2 === 10) v2 = 0;
+    d.push(v2);
+    return d.join('');
+  })();
+  const testPassword = 'PasswordForte123!';
+
+  it('recusa cadastro com CPF com dígitos verificadores inválidos', async () => {
+    const res = await request('/auth/register', '', 'POST', {
+      email: testEmail,
+      password: testPassword,
+      cpf: '12345678900',
+      companyName: 'Empresa Teste',
+    });
+    expect(res.status).toBe(400);
+    expect(res.data.message).toContain('CPF inválido');
+  });
+
+  it('cadastra empresa com CPF criptografado e cria organização e membership', async () => {
+    const res = await request('/auth/register', '', 'POST', {
+      email: testEmail,
+      password: testPassword,
+      cpf: validCpf,
+      companyName: 'Minha Empresa Produção',
+    });
+    expect(res.status).toBe(201);
+    expect(res.data.user.email).toBe(testEmail);
+    expect(res.data.user.role).toBe('owner');
+    expect(res.data.user.cpfLast4).toBe(validCpf.slice(-4));
+    expect(res.data.user.organizationId).toBeTruthy();
+
+    // Rejeita duplicidade de e-mail
+    const dupEmail = await request('/auth/register', '', 'POST', {
+      email: testEmail,
+      password: testPassword,
+      cpf: '52998224725',
+      companyName: 'Outra Empresa',
+    });
+    expect(dupEmail.status).toBe(409);
+  });
+
+  it('faz login com scrypt, recebe token de sessão e acessa rotas autenticadas', async () => {
+    // Senha errada
+    const badLogin = await request('/auth/login', '', 'POST', {
+      email: testEmail,
+      password: 'SenhaErrada123',
+    });
+    expect(badLogin.status).toBe(401);
+
+    // Senha certa
+    const login = await request('/auth/login', '', 'POST', {
+      email: testEmail,
+      password: testPassword,
+    });
+    expect(login.status).toBe(201);
+    expect(login.data.token).toBeTruthy();
+    expect(login.data.user.email).toBe(testEmail);
+
+    // Usa o token de produção na rota /me
+    const me = await fetch('http://127.0.0.1:4000/me', {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${login.data.token}`,
+      },
+    });
+    expect(me.status).toBe(200);
+    const meData = await me.json();
+    expect(meData.role).toBe('owner');
+    expect(meData.organizationId).toBe(login.data.user.organizationId);
   });
 });

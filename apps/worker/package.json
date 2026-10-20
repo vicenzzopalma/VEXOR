@@ -1,6 +1,16 @@
-
 {
   "name": "@eimax/worker",
   "version": "0.1.0",
-  "private": true
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@eimax/workflow-engine": "*",
+    "@eimax/workflow-schema": "*",
+    "@prisma/client": "6.19.3",
+    "dotenv": "16.6.1"
+  }
 }

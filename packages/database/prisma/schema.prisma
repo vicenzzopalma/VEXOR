@@ -1,63 +1,176 @@
-
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
 }
+
+enum ExecutionStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 model Organization {
-  id        String     @id
-  name      String
-  createdAt DateTime   @default(now())
-  workflows Workflow[]
+  id          String        @id @default(uuid())
+  name        String
+  createdAt   DateTime      @default(now())
+  workflows   Workflow[]
   memberships Membership[]
+  users       User[]
+  leads       Lead[]
+  executions  Execution[]
 }
+
 model Membership {
-  id String @id
-  organizationId String @map("organization_id")
-  organization Organization @relation(fields: [organizationId], references: [id])
-  displayName String
-  role String
-  sessions DevelopmentSession[]
+  id             String               @id @default(uuid())
+  organizationId String               @map("organization_id")
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String?              @map("user_id")
+  user           User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
+  displayName    String
+  role           String               // 'owner', 'editor', 'viewer'
+  sessions       DevelopmentSession[]
+
   @@index([organizationId])
+  @@index([userId])
 }
+
 model DevelopmentSession {
-  tokenHash String @id
+  tokenHash    String     @id
   membershipId String
-  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 }
+
+model User {
+  id              String        @id @default(uuid())
+  organizationId  String        @map("organization_id")
+  organization    Organization  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  email           String        @unique
+  passwordHash    String
+  cpfCiphertext   String
+  cpfFingerprint  String
+  cpfLast4        String
+  role            String        @default("editor")
+  emailVerifiedAt DateTime?
+  createdAt       DateTime      @default(now())
+  sessions        Session[]
+  memberships     Membership[]
+
+  @@index([organizationId])
+  @@index([cpfFingerprint])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
+}
+
 model Workflow {
-  id          String            @id @default(uuid())
-  organizationId String @map("organization_id")
-  organization Organization @relation(fields: [organizationId], references: [id])
-  draft       Json
-  revision    Int               @default(1)
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
-  versions    WorkflowVersion[]
-  simulations Simulation[]
+  id             String            @id @default(uuid())
+  organizationId String            @map("organization_id")
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  draft          Json
+  revision       Int               @default(1)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  versions       WorkflowVersion[]
+  simulations    Simulation[]
+  leads          Lead[]
+  executions     Execution[]
+
   @@unique([id, organizationId])
   @@index([organizationId, updatedAt])
 }
+
 model WorkflowVersion {
-  id         String   @id @default(uuid())
-  workflowId String
-  organizationId String @map("organization_id")
-  workflow   Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  number     Int
-  snapshot   Json
-  createdAt  DateTime @default(now())
+  id             String      @id @default(uuid())
+  workflowId     String
+  organizationId String      @map("organization_id")
+  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  number         Int
+  snapshot       Json
+  createdAt      DateTime    @default(now())
+  executions     Execution[]
+
   @@unique([workflowId, number])
+  @@unique([id, organizationId])
 }
+
 model Simulation {
-  id         String   @id @default(uuid())
-  workflowId String
-  organizationId String @map("organization_id")
-  workflow   Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  snapshot   Json
-  steps      Json
-  status     String
-  createdAt  DateTime @default(now())
+  id             String   @id @default(uuid())
+  workflowId     String
+  organizationId String   @map("organization_id")
+  workflow       Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  snapshot       Json
+  steps          Json
+  status         String
+  createdAt      DateTime @default(now())
+
   @@index([workflowId, createdAt])
+}
+
+model Lead {
+  id             String      @id @default(uuid())
+  organizationId String      @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workflowId     String      @map("workflow_id")
+  workflow       Workflow    @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  eventKey       String      @map("event_key")
+  data           Json
+  createdAt      DateTime    @default(now())
+  executions     Execution[]
+
+  @@unique([organizationId, workflowId, eventKey])
+  @@index([organizationId, createdAt])
+}
+
+model Execution {
+  id             String          @id @default(uuid())
+  organizationId String          @map("organization_id")
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  workflowId     String          @map("workflow_id")
+  workflow       Workflow        @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  versionId      String?         @map("version_id")
+  version        WorkflowVersion? @relation(fields: [versionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  leadId         String?         @map("lead_id")
+  lead           Lead?           @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  eventKey       String          @map("event_key")
+  status         ExecutionStatus @default(QUEUED)
+  result         Json?
+  errorCode      String?
+  attempt        Int             @default(0)
+  createdAt      DateTime        @default(now())
+  finishedAt     DateTime?
+  steps          ExecutionStep[]
+
+  @@unique([organizationId, workflowId, eventKey])
+  @@index([organizationId, createdAt])
+  @@index([workflowId, status])
+}
+
+model ExecutionStep {
+  id          String    @id @default(uuid())
+  executionId String    @map("execution_id")
+  execution   Execution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  nodeId      String    @map("node_id")
+  nodeType    String    @map("node_type")
+  name        String
+  status      String
+  input       Json?
+  output      Json?
+  durationMs  Int       @default(0) @map("duration_ms")
+  message     String
+  createdAt   DateTime  @default(now())
+
+  @@index([executionId, createdAt])
 }

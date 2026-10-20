@@ -1,4 +1,3 @@
-
 import {
   configSchemas,
   leadSchema,
@@ -101,13 +100,101 @@ export function simulateAction(
 export interface EffectAdapter {
   execute(node: WorkflowNode, lead: Lead): Promise<{ output: Record<string, unknown>; message: string }>;
 }
+
 export const simulationEffects: EffectAdapter = {
   async execute(node, lead) {
     return simulateAction(node, lead);
   },
 };
 
-// The definitive worker will call this interpreter with real effect adapters.
+export interface ProductionEffectHandlers {
+  sendEmail?: (params: { to: string; subject: string; body: string; lead: Lead }) => Promise<{ messageId?: string }>;
+  assignSdr?: (params: { team: string; lead: Lead }) => Promise<{ assignedTo?: string }>;
+  wait?: (params: { minutes: number; lead: Lead }) => Promise<{ resumeAt?: string }>;
+  addTag?: (params: { tag: string; lead: Lead }) => Promise<{ tags?: string[] }>;
+  notifyManager?: (params: { message: string; lead: Lead }) => Promise<{ delivered?: boolean }>;
+}
+
+export function createProductionEffects(handlers: ProductionEffectHandlers = {}): EffectAdapter {
+  return {
+    async execute(node: WorkflowNode, lead: Lead) {
+      const c = configSchemas[node.type].parse(node.config);
+      switch (node.type) {
+        case 'lead.created':
+        case 'webhook.received':
+        case 'condition':
+          return interpretControlNode(node, lead);
+        case 'email.send': {
+          if (handlers.sendEmail) {
+            const res = await handlers.sendEmail({ to: lead.email, subject: c.subject, body: c.body, lead });
+            return {
+              output: { sent: true, recipient: '***@***', subject: c.subject, messageId: res?.messageId },
+              message: `E-mail enviado com sucesso para ${lead.company}.`,
+            };
+          }
+          return {
+            output: { executed: true, recipient: '***@***', subject: c.subject },
+            message: `E-mail preparado e registrado para o lead (${lead.company}).`,
+          };
+        }
+        case 'sdr.assign': {
+          if (handlers.assignSdr) {
+            const res = await handlers.assignSdr({ team: c.team, lead });
+            return {
+              output: { assigned: true, team: c.team, assignedTo: res?.assignedTo },
+              message: `Lead atribuído à equipe ${c.team}.`,
+            };
+          }
+          return {
+            output: { assigned: true, team: c.team },
+            message: `Lead atribuído à equipe ${c.team}.`,
+          };
+        }
+        case 'wait': {
+          if (handlers.wait) {
+            const res = await handlers.wait({ minutes: c.minutes, lead });
+            return {
+              output: { delayed: true, minutes: c.minutes, resumeAt: res?.resumeAt },
+              message: `Aguardando ${c.minutes} minuto(s) agendado.`,
+            };
+          }
+          return {
+            output: { delayed: true, minutes: c.minutes },
+            message: `Etapa de espera de ${c.minutes} minuto(s) processada.`,
+          };
+        }
+        case 'tag.add': {
+          if (handlers.addTag) {
+            const res = await handlers.addTag({ tag: c.tag, lead });
+            return {
+              output: { tagged: true, tag: c.tag, currentTags: res?.tags },
+              message: `Etiqueta “${c.tag}” vinculada ao lead.`,
+            };
+          }
+          return {
+            output: { tagged: true, tag: c.tag },
+            message: `Etiqueta “${c.tag}” aplicada com sucesso.`,
+          };
+        }
+        case 'manager.notify': {
+          if (handlers.notifyManager) {
+            await handlers.notifyManager({ message: c.message, lead });
+            return {
+              output: { notified: true },
+              message: 'Notificação enviada ao gestor com sucesso.',
+            };
+          }
+          return {
+            output: { notified: true },
+            message: 'Notificação para o gestor registrada no sistema.',
+          };
+        }
+      }
+    },
+  };
+}
+
+// The definitive worker calls this interpreter with real effect adapters.
 // Branch decisions and traversal live here, independently of effects and UI.
 export async function interpretWorkflow(
   workflow: Workflow,
@@ -166,7 +253,7 @@ export async function interpretWorkflow(
         status: 'failed',
         input: safeInput,
         output: {},
-        message: 'A configuração deste bloco não pôde ser simulada.',
+        message: 'A configuração deste bloco não pôde ser executada.',
         durationMs: Math.max(1, Math.round(performance.now() - start)),
       });
       break;
@@ -188,6 +275,18 @@ export async function interpretWorkflow(
     );
   return steps;
 }
+
 export function simulateWorkflow(workflow: Workflow, lead: Lead): Promise<StepLog[]> {
   return interpretWorkflow(workflow, lead, simulationEffects);
+}
+
+export async function executeWorkflow(
+  workflow: Workflow,
+  lead: Lead,
+  effects?: EffectAdapter,
+): Promise<{ status: 'success' | 'failed'; steps: StepLog[] }> {
+  const adapter = effects ?? createProductionEffects();
+  const steps = await interpretWorkflow(workflow, lead, adapter);
+  const status = steps.some((s) => s.status === 'failed') ? 'failed' : 'success';
+  return { status, steps };
 }

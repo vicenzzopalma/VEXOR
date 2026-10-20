@@ -12,7 +12,9 @@ import {
   type WorkflowNode,
 } from '@eimax/workflow-schema';
 import {
+  createProductionEffects,
   evaluateCondition,
+  executeWorkflow,
   interpretWorkflow,
   simulateAction,
   simulateWorkflow,
@@ -127,5 +129,39 @@ describe('Grafo e interpretação compartilhada', () => {
       sampleLead,
     );
     expect(result.output).toEqual({ simulated: true, minutes: 43200 });
+  });
+  it('executa workflow com effect adapters de produção e captura handlers', async () => {
+    const emailsSent: any[] = [];
+    const sdrsAssigned: any[] = [];
+    const tagsAdded: any[] = [];
+    const managerNotified: any[] = [];
+
+    const effects = createProductionEffects({
+      sendEmail: async (params) => {
+        emailsSent.push(params);
+        return { messageId: 'msg-123' };
+      },
+      assignSdr: async (params) => {
+        sdrsAssigned.push(params);
+        return { assignedTo: 'sdr-pedro' };
+      },
+      addTag: async (params) => {
+        tagsAdded.push(params);
+        return { tags: [params.tag] };
+      },
+      notifyManager: async (params) => {
+        managerNotified.push(params);
+        return { delivered: true };
+      },
+    });
+
+    const execution = await executeWorkflow(createSdrTemplate(), sampleLead, effects);
+    expect(execution.status).toBe('success');
+    expect(sdrsAssigned.length).toBe(1);
+    expect(sdrsAssigned[0].team).toBe('Equipe comercial');
+    expect(tagsAdded.length).toBe(1);
+    expect(tagsAdded[0].tag).toBe('Lead qualificado');
+    expect(managerNotified.length).toBe(1);
+    expect(emailsSent.length).toBe(0);
   });
 });
