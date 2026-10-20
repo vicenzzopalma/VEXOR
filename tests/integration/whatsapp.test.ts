@@ -4,7 +4,11 @@ import { readFileSync } from 'node:fs';
 import { createHmac, randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { createSdrTemplate, sampleLead, type Workflow } from '@eimax/workflow-schema';
-import { dispatchNextWhatsApp, enqueueWorkflowExecution } from '@eimax/workflow-runtime';
+import {
+  dispatchNextWhatsApp,
+  enqueueWorkflowExecution,
+  processNextWhatsAppEvent,
+} from '@eimax/workflow-runtime';
 import { waitForExecution } from './helpers';
 process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
 const db = new PrismaClient();
@@ -166,9 +170,18 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
             type: 'whatsapp.message.received',
             config: { connectionId: connection.id },
           },
+          {
+            ...template.nodes[1],
+            id: 'conversation-update',
+            type: 'whatsapp.lead.update',
+            config: { field: 'company', value: '{{lead.message}}' },
+          },
           template.nodes.find((n) => n.type === 'tag.add')!,
         ],
-        edges: [{ id: 'edge', source: 'trigger', target: 'tag' }],
+        edges: [
+          { id: 'edge', source: 'trigger', target: 'conversation-update' },
+          { id: 'edge-update', source: 'conversation-update', target: 'tag' },
+        ],
       };
       const workflow = await db.workflow.create({ data: { organizationId: 'org-local', draft: flow } });
       await db.workflowVersion.create({
@@ -183,7 +196,7 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
                   {
                     id,
                     from: '5511999999999',
-                    text: { body: 'Fixture, sem recebimento de provedor' },
+                    text: { body: `${id} & Empresa` },
                     timestamp: String(Math.floor(Date.now() / 1000)),
                   },
                 ],
@@ -191,14 +204,33 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
             )
           ).status,
         ).toBe(201);
+      expect(await db.execution.count({ where: { workflowId: workflow.id } })).toBe(0);
+      const changed = structuredClone(flow);
+      changed.nodes.find((n) => n.type === 'tag.add')!.config.tag = 'Novo snapshot';
+      await db.workflowVersion.create({
+        data: { organizationId: 'org-local', workflowId: workflow.id, number: 2, snapshot: changed },
+      });
+      while (await processNextWhatsAppEvent(db)) {
+        /* drain durable fixture inbox */
+      }
       const executions = await db.execution.findMany({ where: { workflowId: workflow.id } });
       expect(executions).toHaveLength(2);
+      const version = await db.workflowVersion.findFirstOrThrow({
+        where: { workflowId: workflow.id, number: 1 },
+      });
+      expect(executions.every((execution) => execution.versionId === version.id)).toBe(true);
+      expect(new Set(executions.map((execution) => (execution.eventData as any).message)).size).toBe(2);
       expect(new Set(executions.map((e) => e.leadId)).size).toBe(1);
       for (const execution of executions)
         expect((await waitForExecution(execution.id)).status).toBe('COMPLETED');
       const lead = await db.lead.findFirstOrThrow({ where: { workflowId: workflow.id } });
       expect(lead.whatsappConsent).toBe(false);
       expect(lead.phone).toBe('5511999999999');
+      expect(lead.company).toBe('inbound-fixture-2 & Empresa');
+      expect(lead.tags).toEqual(['Lead qualificado']);
+      const history = await request(`/leads/${lead.id}`);
+      expect(history.data.conversation).toHaveLength(2);
+      expect((await request(`/leads/${lead.id}`, 'other')).status).toBe(404);
     } finally {
       await db.whatsAppConnection.update({
         where: { id: connection.id },

@@ -1,6 +1,11 @@
 ﻿import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
-import { runNextExecution, dispatchNextWhatsApp } from './runner';
+import {
+  runNextExecution,
+  dispatchNextWhatsApp,
+  dispatchNextEmail,
+  processNextWhatsAppEvent,
+} from './runner';
 export * from './runner';
 
 export async function startWorkerLoop(prisma: PrismaClient, pollIntervalMs = 500) {
@@ -9,9 +14,11 @@ export async function startWorkerLoop(prisma: PrismaClient, pollIntervalMs = 500
   const done = (async () => {
     while (running) {
       try {
+        const incoming = await processNextWhatsAppEvent(prisma);
         const result = await runNextExecution(prisma);
         const delivery = await dispatchNextWhatsApp(prisma);
-        if (result || delivery) continue;
+        const email = await dispatchNextEmail(prisma);
+        if (incoming || result || delivery || email) continue;
       } catch {
         console.error('Worker: falha de banco; a reserva será recuperada pelo lease.');
       }

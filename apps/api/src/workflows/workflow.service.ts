@@ -21,6 +21,7 @@ import {
 } from './contracts';
 import { processWorkflowExecution } from './runner';
 import { validateConnections } from '@eimax/workflow-runtime';
+import { equalSecret, verifySignature } from '@eimax/connectors';
 import { encryptCpf, hashPassword, MemoryRateLimiter, validCpf, verifyPassword } from '../common/security';
 
 @Injectable()
@@ -130,7 +131,7 @@ export class WorkflowService {
         await validateConnections(tx, row.draft, organizationId);
       } catch {
         throw new BadRequestException(
-          'Revise as conexões WhatsApp: conta conectada, evento suportado e template aprovado são obrigatórios.',
+          'Revise as conexões: selecione uma conta conectada, um evento suportado e, quando necessário, um template aprovado.',
         );
       }
       const previous = await tx.workflowVersion.findFirst({
@@ -361,7 +362,34 @@ export class WorkflowService {
     });
 
     if (!lead) throw new NotFoundException('Lead não encontrado.');
-    return lead;
+    const contact = lead.externalContactKey;
+    const separator = contact?.indexOf(':') ?? -1;
+    const connectionId = separator > 0 ? contact!.slice(0, separator) : undefined;
+    const phone = separator > 0 ? contact!.slice(separator + 1) : undefined;
+    const conversation =
+      connectionId && phone
+        ? await this.db.whatsAppEvent.findMany({
+            where: {
+              connectionId,
+              connection: { organizationId },
+              kind: 'MESSAGE',
+              payload: { path: ['from'], equals: phone },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 30,
+            select: { id: true, createdAt: true, status: true, errorCode: true, payload: true },
+          })
+        : [];
+    return {
+      ...lead,
+      conversation: conversation.map((event) => ({
+        id: event.id,
+        createdAt: event.createdAt,
+        status: event.status,
+        errorCode: event.errorCode,
+        text: String((event.payload as { text?: string }).text ?? ''),
+      })),
+    };
   }
 
   async updateLead(
@@ -532,6 +560,7 @@ export class WorkflowService {
     secret: string | undefined,
     body: unknown,
     eventKeyHeader?: string,
+    signing?: { raw: Buffer; signature: string; timestamp: string },
   ) {
     const flow = await this.db.workflow.findUnique({
       where: { id: workflowId },
@@ -549,14 +578,26 @@ export class WorkflowService {
       throw new BadRequestException('Este processo não possui um gatilho de webhook configurado.');
     }
 
-    let credentials: Record<string, string> = {};
+    let credentials: Record<string, string | { secret: string; mode: 'hmac' }> = {};
     try {
       credentials = JSON.parse(process.env.WEBHOOK_CREDENTIALS_JSON ?? '{}');
     } catch {
       /* Fail closed on configuration errors. */
     }
-    const expectedSecret = credentials[`${flow.organizationId}:${webhookNode.config.credentialRef}`];
-    if (!expectedSecret || !secret || hash(secret) !== hash(expectedSecret)) {
+    const credential = credentials[`${flow.organizationId}:${webhookNode.config.credentialRef}`];
+    const authenticated =
+      typeof credential === 'string'
+        ? !!secret && equalSecret(secret, credential)
+        : credential?.mode === 'hmac' &&
+          !!signing &&
+          /^\d{10}$/.test(signing.timestamp) &&
+          Math.abs(Date.now() / 1000 - Number(signing.timestamp)) <= 300 &&
+          verifySignature(
+            Buffer.concat([Buffer.from(`${signing.timestamp}.`), signing.raw]),
+            signing.signature,
+            credential.secret,
+          );
+    if (!authenticated) {
       throw new HttpException('Webhook não autorizado.', 401);
     }
 

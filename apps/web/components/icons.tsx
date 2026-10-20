@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { BlockType } from '@eimax/workflow-schema';
 export const blockIcons: Record<BlockType, LucideIcon> = {
+  'whatsapp.lead.update': UserRoundCheck,
   'whatsapp.message.received': MessageCircle,
   'whatsapp.conversation.started': MessageCircle,
   'whatsapp.text.send': MessageCircle,

@@ -4,12 +4,17 @@ import { WorkflowService } from './workflow.service';
 import { DevelopmentGuard } from './development.guard';
 import { WhatsAppController } from './whatsapp.controller';
 import { WhatsAppService } from './whatsapp.service';
+import { IngressService } from './ingress.service';
+import { IntegrationService } from './integration.service';
+import { IntegrationController } from './integration.controller';
 
 @Module({
-  controllers: [WorkflowController, WhatsAppController],
+  controllers: [WorkflowController, WhatsAppController, IntegrationController],
   providers: [
     WorkflowService,
     WhatsAppService,
+    IngressService,
+    IntegrationService,
     { provide: 'WORKFLOW_SERVICE', useExisting: WorkflowService },
     DevelopmentGuard,
   ],

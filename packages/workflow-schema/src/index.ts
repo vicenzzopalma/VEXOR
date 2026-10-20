@@ -16,12 +16,20 @@ export const blockTypes = [
   'whatsapp.text.send',
   'whatsapp.template.send',
   'whatsapp.sdr.notify',
+  'whatsapp.lead.update',
 ] as const;
 export type BlockType = (typeof blockTypes)[number];
 export const catalog: Record<
   BlockType,
   { name: string; description: string; category: string; color: string; defaults: Record<string, unknown> }
 > = {
+  'whatsapp.lead.update': {
+    name: 'Atualizar lead da conversa',
+    description: 'Atualize um campo com dados da mensagem',
+    category: 'Ações',
+    color: 'blue',
+    defaults: { field: 'name', value: '{{lead.message}}' },
+  },
   'whatsapp.message.received': {
     name: 'Mensagem WhatsApp recebida',
     description: 'Inicie com uma mensagem recebida',
@@ -121,6 +129,9 @@ export const catalog: Record<
 
 const shortText = z.string().trim().min(1, 'Preencha este campo.').max(200);
 export const configSchemas: Record<BlockType, z.ZodTypeAny> = {
+  'whatsapp.lead.update': z
+    .object({ field: z.enum(['name', 'company', 'email']), value: z.string().trim().min(1).max(200) })
+    .strict(),
   'whatsapp.message.received': z.object({ connectionId: shortText }).strict(),
   'whatsapp.conversation.started': z.object({ connectionId: shortText }).strict(),
   'whatsapp.text.send': z
@@ -167,6 +178,7 @@ export const configSchemas: Record<BlockType, z.ZodTypeAny> = {
       to: z.literal('lead.email'),
       subject: shortText,
       body: z.string().trim().min(1, 'Escreva a mensagem.').max(5000),
+      connectionId: shortText.optional(),
     })
     .strict(),
   'sdr.assign': z.object({ team: shortText }).strict(),
@@ -310,6 +322,7 @@ export const leadSchema = z
     score: z.number().min(0).max(100),
     source: shortText,
     phone: z.string().trim().max(30).optional(),
+    message: z.string().max(10000).optional(),
   })
   .strict();
 export type Lead = z.infer<typeof leadSchema>;

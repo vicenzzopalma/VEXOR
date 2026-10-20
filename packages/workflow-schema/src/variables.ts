@@ -7,11 +7,12 @@ export const leadVariables = {
   score: 'Pontuação',
   source: 'Origem',
   assignedTo: 'SDR Responsável',
+  message: 'Texto da mensagem recebida',
 } as const;
 export const stepVariables: Record<string, Record<string, string>> = {
   'sdr.assign': { assignedTo: 'SDR Responsável', assigned: 'Atribuído' },
   condition: { matched: 'Regra atendida', branch: 'Caminho' },
-  'email.send': { messageId: 'Identificador da mensagem' },
+  'email.send': { messageId: 'Identificador da mensagem', notificationId: 'Registro na fila de envio' },
   'manager.notify': { notificationId: 'Identificador do aviso' },
   'tag.add': { tag: 'Etiqueta' },
 };

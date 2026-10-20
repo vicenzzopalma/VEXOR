@@ -12,7 +12,10 @@ export function loadDevelopmentSessions() {
   sessions.webhook ??= process.env.WEBHOOK_SECRET ?? randomBytes(32).toString('hex');
   writeFileSync(path, JSON.stringify(sessions), { mode: 0o600 });
   process.env.WEBHOOK_SECRET ??= sessions.webhook;
-  process.env.WEBHOOK_CREDENTIALS_JSON ??= JSON.stringify({ 'org-local:ingress': sessions.webhook });
+  process.env.WEBHOOK_CREDENTIALS_JSON ??= JSON.stringify({
+    'org-local:ingress': sessions.webhook,
+    'org-local:signed-ingress': { secret: sessions.webhook, mode: 'hmac' },
+  });
   for (const [name, token] of Object.entries(sessions))
     process.env[`DEV_${name.toUpperCase()}_TOKEN`] = token;
   return sessions;

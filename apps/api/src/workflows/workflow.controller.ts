@@ -22,6 +22,7 @@ import { z } from 'zod';
 import { createSdrTemplate } from '@eimax/workflow-schema';
 import { DevelopmentGuard } from './development.guard';
 import { WorkflowService } from './workflow.service';
+import { IngressService } from './ingress.service';
 import {
   executeSchema,
   json,
@@ -38,7 +39,10 @@ import {
 @Controller()
 @UseGuards(DevelopmentGuard)
 export class WorkflowController {
-  constructor(@Inject(WorkflowService) private readonly workflows: WorkflowService) {}
+  constructor(
+    @Inject(WorkflowService) private readonly workflows: WorkflowService,
+    @Inject(IngressService) private readonly ingress: IngressService,
+  ) {}
 
   @Get('health')
   @SetMetadata('public', true)
@@ -231,7 +235,16 @@ export class WorkflowController {
     @Headers('x-eimax-webhook-secret') secret: string | undefined,
     @Headers('x-eimax-event-key') eventKey: string | undefined,
     @Body() body: unknown,
+    @Req() req: { rawBody?: Buffer; socket: { remoteAddress?: string } },
+    @Headers('x-vexor-signature') signature = '',
+    @Headers('x-vexor-timestamp') timestamp = '',
   ) {
-    return this.workflows.handleWebhook(workflowId, secret, body, eventKey);
+    return this.ingress.handle('WORKFLOW', workflowId, req.socket.remoteAddress ?? 'unknown', () =>
+      this.workflows.handleWebhook(workflowId, secret, body, eventKey, {
+        raw: req.rawBody ?? Buffer.alloc(0),
+        signature,
+        timestamp,
+      }),
+    );
   }
 }

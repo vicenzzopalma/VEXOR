@@ -1,4 +1,11 @@
-import { BadRequestException, HttpException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { z } from 'zod';
 import {
   ConnectorError,
@@ -8,6 +15,7 @@ import {
   validateOrigin,
   verifySignature,
   whatsappAdapter,
+  parseWhatsAppEvents,
   type Secrets,
   type Settings,
 } from '@eimax/connectors';
@@ -17,6 +25,7 @@ import { type Workflow } from '@eimax/workflow-schema';
 
 export const connectionSchema = z
   .object({
+    expectedUpdatedAt: z.string().datetime().optional(),
     name: z.string().trim().min(1).max(100),
     provider: z.enum(['META', 'EVOLUTION']),
     settings: z
@@ -67,6 +76,7 @@ export class WhatsAppService {
     credentials: string | null;
     lastError: string | null;
     checkedAt: Date | null;
+    updatedAt: Date;
   }) {
     return {
       id: row.id,
@@ -77,6 +87,7 @@ export class WhatsAppService {
       credentialsConfigured: !!row.credentials,
       lastError: row.lastError,
       checkedAt: row.checkedAt,
+      updatedAt: row.updatedAt,
       configurationRequired:
         !row.credentials ||
         process.env.WHATSAPP_EXTERNAL_ENABLED !== 'true' ||
@@ -103,6 +114,8 @@ export class WhatsAppService {
     const existing = id ? await this.get(id, organizationId) : undefined;
     if (existing && existing.provider !== input.provider)
       throw new BadRequestException('Cadastre outra conexão para mudar de provedor.');
+    if (existing && existing.updatedAt.toISOString() !== input.expectedUpdatedAt)
+      throw new ConflictException('Recarregue a conta antes de salvar.');
     let credentials = existing?.credentials;
     if (input.credentials && Object.keys(input.credentials).length) {
       try {
@@ -122,50 +135,73 @@ export class WhatsAppService {
       lastError: null,
     };
     const row = id
-      ? await this.db.whatsAppConnection.update({ where: { id }, data })
+      ? await this.db.whatsAppConnection
+          .update({ where: { id, updatedAt: existing!.updatedAt }, data })
+          .catch(() => {
+            throw new ConflictException('A conta mudou. Recarregue antes de salvar.');
+          })
       : await this.db.whatsAppConnection.create({ data });
     return this.publicConnection(row);
   }
-  async operate(id: string, organizationId: string, action: 'connect' | 'refresh' | 'disconnect') {
+  async operate(
+    id: string,
+    organizationId: string,
+    action: 'connect' | 'refresh' | 'disconnect' | 'create-instance' | 'reconnect',
+  ) {
     const row = await this.get(id, organizationId);
     if (action === 'refresh' && !row.enabled) return this.publicConnection(row);
-    if (action === 'disconnect' && !row.credentials) {
+    const unavailable = this.publicConnection(row).configurationRequired;
+    if (action === 'disconnect' && unavailable)
       return this.publicConnection(
-        await this.db.whatsAppConnection.update({ where: { id }, data: { state: 'DISCONNECTED' } }),
+        await this.db.whatsAppConnection.update({
+          where: { id, updatedAt: row.updatedAt },
+          data: { state: 'DISCONNECTED', enabled: false },
+        }),
       );
-    }
-    if (this.publicConnection(row).configurationRequired)
+    if (unavailable)
       throw new BadRequestException(
         'Configuração necessária: credenciais, chave de criptografia e provedor autorizado.',
       );
+    // CAS reserves this operation; a later edit/disconnect fences stale provider results.
+    const lease = await this.db.whatsAppConnection
+      .update({
+        where: { id, updatedAt: row.updatedAt },
+        data: {
+          state:
+            action === 'disconnect'
+              ? 'DISCONNECTED'
+              : action === 'refresh'
+                ? row.state
+                : action === 'reconnect'
+                  ? 'RECONNECTING'
+                  : 'CONNECTING',
+          enabled: action !== 'disconnect',
+        },
+      })
+      .catch(() => {
+        throw new ConflictException('A conta mudou. Recarregue antes de continuar.');
+      });
     try {
       const adapter = whatsappAdapter(row.provider, row.settings as Settings, openSecrets(row.credentials!));
       let result: { state: string; qr?: string; expiresAt?: string };
       if (action === 'disconnect') {
-        await this.db.whatsAppConnection.update({
-          where: { id },
-          data: { enabled: false, state: 'DISCONNECTED' },
-        });
         await adapter.disconnect();
         result = { state: 'DISCONNECTED' };
       } else if (action === 'refresh') result = { state: await adapter.status() };
-      else {
-        await this.db.whatsAppConnection.update({
-          where: { id },
-          data: { state: row.state === 'DISCONNECTED' ? 'CONNECTING' : 'RECONNECTING' },
-        });
-        result = await adapter.connect();
-      }
+      else if (action === 'create-instance') {
+        await adapter.createInstance();
+        result = { state: 'DISCONNECTED' };
+      } else result = action === 'reconnect' ? await adapter.reconnect() : await adapter.connect();
       const settings = row.settings as Settings;
       const approvedTemplates =
         row.provider === 'META' && result.state === 'CONNECTED'
           ? await adapter.templates()
           : settings.approvedTemplates;
       const updated = await this.db.whatsAppConnection.update({
-        where: { id },
+        where: { id, updatedAt: lease.updatedAt },
         data: {
           state: result.state,
-          enabled: action !== 'disconnect',
+          enabled: !['disconnect', 'create-instance'].includes(action),
           checkedAt: new Date(),
           lastError: null,
           settings: JSON.parse(
@@ -178,12 +214,17 @@ export class WhatsAppService {
         ...(result.qr ? { qr: result.qr, expiresAt: result.expiresAt } : {}),
       };
     } catch (error) {
-      const code = error instanceof ConnectorError ? error.code : 'CONNECTION_FAILED';
-      await this.db.whatsAppConnection.update({
-        where: { id },
-        data: { state: 'ERROR', checkedAt: new Date(), lastError: code },
+      const code = error instanceof ConnectorError ? error.code : 'CONNECTION_CHANGED_OR_FAILED';
+      await this.db.whatsAppConnection.updateMany({
+        where: { id, updatedAt: lease.updatedAt },
+        data: {
+          state: action === 'disconnect' ? 'DISCONNECTED' : 'ERROR',
+          enabled: false,
+          checkedAt: new Date(),
+          lastError: code,
+        },
       });
-      throw new BadRequestException(`Não foi possível confirmar a conexão (${code}).`);
+      throw new BadRequestException(`Falha ao confirmar a conta (${code}).`);
     }
   }
   async verify(id: string, mode: string, token: string, challenge: string) {
@@ -208,64 +249,27 @@ export class WhatsAppService {
         ? !!secrets.appSecret && verifySignature(raw, signature, secrets.appSecret)
         : !!secrets.webhookSecret && equalSecret(secret, secrets.webhookSecret);
     if (!authorized) throw new HttpException('Webhook não autorizado.', 401);
-    const settings = row.settings as Settings;
-    const events: { id: string; kind: string; payload: any }[] = [];
-    if (row.provider === 'META') {
-      for (const entry of body?.entry ?? [])
-        for (const change of entry.changes ?? []) {
-          const value = change.value;
-          if (value?.metadata?.phone_number_id !== settings.phoneNumberId) continue;
-          for (const status of value.statuses ?? [])
-            events.push({
-              id: status.id,
-              kind: String(status.status).toUpperCase(),
-              payload: { providerMessageId: status.id },
-            });
-          for (const message of value.messages ?? [])
-            events.push({
-              id: message.id,
-              kind: 'MESSAGE',
-              payload: { from: message.from, text: message.text?.body ?? '', timestamp: message.timestamp },
-            });
-        }
-    } else if (body?.instance === settings.instance) {
-      if (body.event === 'messages.upsert' && !body.data?.key?.fromMe)
-        events.push({
-          id: body.data?.key?.id,
-          kind: 'MESSAGE',
-          payload: {
-            from: body.data?.key?.remoteJid?.split('@')[0],
-            text: body.data?.message?.conversation ?? '',
-            timestamp: body.data?.messageTimestamp,
-          },
-        });
-      if (body.event === 'messages.update') {
-        const statuses: Record<string, string> = {
-          SERVER_ACK: 'SENT',
-          DELIVERY_ACK: 'DELIVERED',
-          READ: 'READ',
-          ERROR: 'FAILED',
-        };
-        const kind = statuses[String(body.data?.status)];
-        if (kind)
-          events.push({
-            id: body.data?.keyId ?? body.data?.key?.id,
-            kind,
-            payload: { providerMessageId: body.data?.keyId ?? body.data?.key?.id },
-          });
-      }
-      if (body.event === 'connection.update') {
-        // Verify gateway state through its authenticated API before trusting CONNECTED.
-        if (body.data?.state === 'close')
-          await this.db.whatsAppConnection.update({
-            where: { id },
-            data: { state: 'DISCONNECTED', checkedAt: new Date() },
-          });
-      }
+    let events: ReturnType<typeof parseWhatsAppEvents>;
+    try {
+      events = parseWhatsAppEvents(row.provider, row.settings as Settings, body);
+    } catch {
+      throw new BadRequestException('Payload de webhook invalido.');
     }
-    for (const event of events) {
-      if (typeof event.id !== 'string' || !event.id || event.id.length > 250) continue;
-      await this.db.$transaction(async (tx) => {
+    await this.db.$transaction(async (tx) => {
+      const workflows = events.some((e) => e.kind === 'MESSAGE')
+        ? await tx.workflow.findMany({
+            where: { organizationId: row.organizationId, versions: { some: {} } },
+            include: { versions: { orderBy: { number: 'desc' }, take: 1 } },
+          })
+        : [];
+      const routing = workflows
+        .filter((workflow) =>
+          (workflow.versions[0].snapshot as unknown as Workflow).nodes.some(
+            (n) => n.type === 'whatsapp.message.received' && n.config.connectionId === row.id,
+          ),
+        )
+        .map((workflow) => workflow.versions[0].id);
+      for (const event of events)
         await tx.whatsAppEvent.upsert({
           where: {
             connectionId_providerEventId_kind: {
@@ -275,67 +279,16 @@ export class WhatsAppService {
             },
           },
           update: {},
-          create: { connectionId: id, providerEventId: event.id, kind: event.kind, payload: event.payload },
+          create: {
+            connectionId: id,
+            providerEventId: event.id,
+            kind: event.kind,
+            payload: JSON.parse(JSON.stringify(event.payload)),
+            routing: event.kind === 'MESSAGE' ? routing : [],
+            status: 'PENDING',
+          },
         });
-        const prior: Record<string, string[]> = {
-          SENT: ['PENDING', 'PROCESSING'],
-          DELIVERED: ['PENDING', 'PROCESSING', 'SENT'],
-          READ: ['PENDING', 'PROCESSING', 'SENT', 'DELIVERED'],
-          FAILED: ['PENDING', 'PROCESSING', 'SENT'],
-        };
-        if (prior[event.kind])
-          await tx.notification.updateMany({
-            where: {
-              organizationId: row.organizationId,
-              connectionId: id,
-              providerMessageId: event.id,
-              status: { in: prior[event.kind] },
-            },
-            data: { status: event.kind },
-          });
-      });
-      if (event.kind === 'MESSAGE' && row.enabled && row.state === 'CONNECTED') {
-        const phone = String(event.payload.from ?? '');
-        if (!/^\+?[1-9]\d{7,14}$/.test(phone)) continue;
-        const timestamp = Number(event.payload.timestamp);
-        const receivedAt =
-          Number.isFinite(timestamp) && timestamp > 0 && timestamp * 1000 <= Date.now() + 60000
-            ? new Date(timestamp * 1000)
-            : new Date();
-        const workflows = await this.db.workflow.findMany({
-          where: { organizationId: row.organizationId, versions: { some: {} } },
-          include: { versions: { orderBy: { number: 'desc' }, take: 1 } },
-        });
-        for (const workflow of workflows) {
-          const version = workflow.versions[0];
-          const flow = version.snapshot as unknown as Workflow;
-          if (
-            !flow.nodes.some(
-              (n) => n.type === 'whatsapp.message.received' && n.config.connectionId === row.id,
-            )
-          )
-            continue;
-          await this.workflows.enqueue({
-            prisma: this.db,
-            organizationId: row.organizationId,
-            workflowId: workflow.id,
-            versionId: version.id,
-            eventKey: `whatsapp:${row.id}:${event.id}`,
-            externalContactKey: `${row.id}:${phone}`,
-            inboundAt: receivedAt,
-            leadData: {
-              name: 'Contato WhatsApp',
-              company: 'Não informada',
-              email: '',
-              phone,
-              budget: 0,
-              score: 0,
-              source: 'whatsapp',
-            },
-          });
-        }
-      }
-    }
-    return { accepted: true };
+    });
+    return { accepted: true, persistedEvents: events.length, processing: 'ASYNCHRONOUS' };
   }
 }

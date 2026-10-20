@@ -110,6 +110,8 @@ export function simulateAction(
         output: { simulated: true, notificationPrepared: true },
         message: 'Notificação validada. Nenhum aviso foi enviado.',
       };
+    case 'whatsapp.lead.update':
+      return { output: { simulated: true, field: c.field }, message: 'Atualização do lead simulada.' };
     case 'whatsapp.text.send':
     case 'whatsapp.template.send':
       return {
@@ -130,6 +132,11 @@ export const simulationEffects: EffectAdapter = {
 };
 
 export interface ProductionEffectHandlers {
+  updateConversationLead?: (params: {
+    field: string;
+    value: string;
+    lead: Lead;
+  }) => Promise<{ updated: boolean }>;
   sendWhatsapp?: (params: {
     node: WorkflowNode;
     lead: Lead;
@@ -140,7 +147,9 @@ export interface ProductionEffectHandlers {
     subject: string;
     body: string;
     lead: Lead;
-  }) => Promise<{ messageId?: string; status?: 'PENDING' | 'SENT' }>;
+    connectionId?: string;
+    nodeId: string;
+  }) => Promise<{ messageId?: string; notificationId?: string; status?: 'PENDING' | 'SENT' }>;
   assignSdr?: (params: { team: string; lead: Lead }) => Promise<{ assignedTo?: string }>;
   wait?: (params: { minutes: number; lead: Lead }) => Promise<{ resumeAt?: string }>;
   addTag?: (params: { tag: string; lead: Lead }) => Promise<{ tags?: string[] }>;
@@ -172,9 +181,34 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
           const result = await handlers.notifySdr({ message: c.message, lead });
           return { output: result, message: 'Aviso interno disponibilizado ao SDR responsável.' };
         }
+        case 'whatsapp.lead.update': {
+          if (!handlers.updateConversationLead) throw new Error('Adapter de conversa não configurado.');
+          if (c.field === 'email' && !leadSchema.shape.email.safeParse(c.value).success)
+            throw new Error('INVALID_LEAD_VALUE');
+          const result = await handlers.updateConversationLead({ field: c.field, value: c.value, lead });
+          if (result.updated) Object.assign(lead, { [c.field]: c.value });
+          return {
+            output: { updated: result.updated, field: c.field },
+            message: result.updated
+              ? 'Lead atualizado a partir da conversa.'
+              : 'Mensagem antiga preservada; cadastro mais recente mantido.',
+          };
+        }
         case 'email.send': {
           if (handlers.sendEmail) {
-            const res = await handlers.sendEmail({ to: lead.email, subject: c.subject, body: c.body, lead });
+            const res = await handlers.sendEmail({
+              to: lead.email,
+              subject: c.subject,
+              body: c.body,
+              lead,
+              nodeId: node.id,
+              connectionId: c.connectionId,
+            });
+            if (res.notificationId)
+              return {
+                output: { notificationId: res.notificationId, status: 'PENDING', queued: true },
+                message: 'E-mail enfileirado; aguardando aceitação pelo provedor.',
+              };
             if (!res.messageId) throw new Error('O provedor não confirmou um identificador.');
             return {
               output: {

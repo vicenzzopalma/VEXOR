@@ -25,6 +25,8 @@ model Organization {
   executions    Execution[]
   notifications Notification[]
   connections   WhatsAppConnection[]
+  integrations  IntegrationConnection[]
+  ingressLogs   WebhookIngressLog[]
 }
 
 model Membership {
@@ -169,6 +171,7 @@ model Execution {
   eventKey       String          @map("event_key")
   status         ExecutionStatus @default(QUEUED)
   result         Json?
+  eventData      Json?
   errorCode      String?
   attempt        Int             @default(0)
   attemptHistory Json            @default("[]")
@@ -226,12 +229,17 @@ model Notification {
   processingAt   DateTime?
   errorCode      String?
   attempt        Int          @default(0)
+  availableAt    DateTime     @default(now())
+  deliveryToken  String?
+  integrationId  String?
+  integration    IntegrationConnection? @relation(fields: [integrationId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction)
   createdAt      DateTime     @default(now())
 
   @@index([organizationId, createdAt])
   @@index([leadId])
   @@unique([executionId, nodeId], map: "Notification_executionId_nodeId_key")
   @@unique([connectionId, providerMessageId])
+  @@unique([integrationId, providerMessageId])
 }
 
 model WhatsAppConnection {
@@ -262,8 +270,80 @@ model WhatsAppEvent {
   providerEventId String
   kind           String
   payload        Json
+  routing        Json @default("[]")
+  status         String @default("COMPLETED")
+  attempt        Int @default(0)
+  availableAt    DateTime @default(now())
+  errorCode      String?
+  processedAt    DateTime?
   createdAt      DateTime @default(now())
 
   @@unique([connectionId, providerEventId, kind])
   @@index([connectionId, createdAt])
+}
+
+model IntegrationConnection {
+  id             String @id @default(uuid())
+  organizationId String @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  name           String
+  provider       String
+  state          String @default("DISCONNECTED")
+  settings       Json
+  credentials    String?
+  enabled        Boolean @default(false)
+  lastError      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  notifications  Notification[]
+  oauthAttempts  IntegrationOAuthAttempt[]
+  events         IntegrationEvent[]
+
+  @@unique([id, organizationId])
+  @@index([organizationId, createdAt])
+}
+
+model IntegrationEvent {
+  id             String @id @default(uuid())
+  integrationId  String
+  integration    IntegrationConnection @relation(fields: [integrationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  providerEventId String
+  providerMessageId String
+  kind           String
+  createdAt      DateTime @default(now())
+
+  @@unique([integrationId, providerEventId])
+  @@index([integrationId, providerMessageId])
+}
+
+model IntegrationOAuthAttempt {
+  id             String @id @default(uuid())
+  integrationId  String
+  organizationId String @map("organization_id")
+  integration    IntegrationConnection @relation(fields: [integrationId, organizationId], references: [id, organizationId], onDelete: Cascade, onUpdate: NoAction)
+  stateHash      String @unique
+  verifier       String
+  redirectUri    String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime @default(now())
+}
+
+model WebhookRateBucket {
+  key            String @id
+  count          Int
+  expiresAt      DateTime
+}
+
+model WebhookIngressLog {
+  id             String @id @default(uuid())
+  organizationId String? @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  source         String
+  resourceId     String
+  outcome        String
+  code           String
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, createdAt])
 }

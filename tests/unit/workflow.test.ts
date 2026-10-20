@@ -26,7 +26,7 @@ describe('Contratos dos blocos do catálogo', () => {
         ? { credentialRef: 'webhook-vendas' }
         : type === 'whatsapp.template.send'
           ? { connectionId: 'connection-fixture', template: 'approved_fixture', language: 'pt_BR' }
-          : type.startsWith('whatsapp.') && type !== 'whatsapp.sdr.notify'
+          : type.startsWith('whatsapp.') && !['whatsapp.sdr.notify', 'whatsapp.lead.update'].includes(type)
             ? { ...catalog[type].defaults, connectionId: 'connection-fixture' }
             : catalog[type].defaults;
     const node: WorkflowNode = {

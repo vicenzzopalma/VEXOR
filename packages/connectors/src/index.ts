@@ -9,6 +9,8 @@ import {
 import { lookup } from 'node:dns/promises';
 import { request } from 'node:https';
 import { isIP } from 'node:net';
+export * from './contracts';
+export * from './whatsapp-events';
 
 export type ConnectionState =
   | 'DISCONNECTED'
@@ -32,6 +34,8 @@ export type Secrets = {
   appSecret?: string;
   webhookSecret?: string;
   verifyToken?: string;
+  refreshToken?: string;
+  verifier?: string;
 };
 export type SendPayload = { to: string; text?: string; template?: string; language?: string };
 export type Transport = (
@@ -41,7 +45,11 @@ export type Transport = (
   body?: unknown,
 ) => Promise<any>;
 export class ConnectorError extends Error {
-  constructor(public readonly code: string) {
+  constructor(
+    public readonly code: string,
+    public readonly retrySafe = false,
+    public readonly retryAfterMs = 0,
+  ) {
     super(code);
   }
 }
@@ -142,6 +150,8 @@ export const secureTransport: Transport = async (url, method, headers, body) => 
                 res.statusCode === 401 || res.statusCode === 403
                   ? 'AUTHENTICATION_FAILED'
                   : `PROVIDER_HTTP_${res.statusCode}`,
+                res.statusCode === 429,
+                Math.min(60000, Math.max(1000, Number(res.headers['retry-after']) * 1000 || 5000)),
               ),
             );
           try {
@@ -192,6 +202,21 @@ export function whatsappAdapter(
   const call = (path: string, method = 'GET', body?: unknown) =>
     transport(new URL(path, origin), method, headers, body);
   return {
+    async createInstance() {
+      if (provider !== 'EVOLUTION') throw new ConnectorError('CAPABILITY_NOT_SUPPORTED');
+      const result = await call('/instance/create', 'POST', {
+        instanceName: settings.instance,
+        integration: 'WHATSAPP-BAILEYS',
+        qrcode: false,
+      });
+      if (result.instance?.instanceName !== settings.instance)
+        throw new ConnectorError('INVALID_PROVIDER_RESPONSE');
+      return { created: true, instance: settings.instance };
+    },
+    async reconnect() {
+      if (provider === 'EVOLUTION') await call(`/instance/restart/${settings.instance}`, 'POST');
+      return this.connect();
+    },
     async templates(): Promise<{ name: string; language: string }[]> {
       if (provider !== 'META' || !/^\d+$/.test(settings.wabaId ?? '')) return [];
       const result = await call(
@@ -274,3 +299,5 @@ export function whatsappAdapter(
     },
   };
 }
+
+export * from './commercial';

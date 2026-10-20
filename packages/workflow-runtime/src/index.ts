@@ -1,3 +1,4 @@
+import { reserveDelivery, failDelivery } from './delivery';
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { leadSchema, validateWorkflow, type Workflow } from '@eimax/workflow-schema';
@@ -7,6 +8,7 @@ import {
   whatsappAdapter,
   type Settings,
   type SendPayload,
+  type Transport,
   ConnectorError,
 } from '@eimax/connectors';
 
@@ -22,55 +24,79 @@ export interface EnqueueParams {
   inboundAt?: Date;
 }
 
-export async function enqueueWorkflowExecution(params: EnqueueParams) {
-  const { prisma, organizationId, workflowId, eventKey, versionId } = params;
+export async function enqueueInTransaction(
+  tx: Prisma.TransactionClient,
+  params: Omit<EnqueueParams, 'prisma'>,
+) {
+  const { organizationId, workflowId, eventKey, versionId } = params;
   const key = { organizationId, workflowId, eventKey };
-  const existing = await prisma.execution.findUnique({
+  const existing = await tx.execution.findUnique({
     where: { organizationId_workflowId_eventKey: key },
     include,
   });
   if (existing) return { execution: existing, idempotentHit: true };
   const lead = leadSchema.parse(params.leadData);
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const version = await tx.workflowVersion.findFirst({
-        where: { organizationId, workflowId, ...(versionId ? { id: versionId } : {}) },
-        orderBy: { number: 'desc' },
-      });
-      if (!version) throw new Error('Publique uma versão válida antes de executar.');
-      const issues = validateWorkflow(version.snapshot as unknown as Workflow);
-      if (issues.length) throw new Error('A versão publicada é inválida.');
-      await validateConnections(tx, version.snapshot as unknown as Workflow, organizationId);
-      const persisted = params.externalContactKey
-        ? await tx.lead.upsert({
-            where: {
-              organizationId_workflowId_externalContactKey: {
-                organizationId,
-                workflowId,
-                externalContactKey: params.externalContactKey,
-              },
-            },
-            update: { lastInboundAt: params.inboundAt },
-            create: {
-              ...key,
-              ...lead,
-              data: lead,
-              externalContactKey: params.externalContactKey,
-              lastInboundAt: params.inboundAt,
-            },
-          })
-        : await tx.lead.create({ data: { ...key, ...lead, data: lead } });
-      const execution = await tx.execution.create({
-        data: { ...key, leadId: persisted.id, versionId: version.id, status: 'QUEUED' },
-        include,
-      });
-      return { execution, idempotentHit: false };
+  const { message: _message, ...leadFields } = lead;
+  const version = await tx.workflowVersion.findFirst({
+    where: { organizationId, workflowId, ...(versionId ? { id: versionId } : {}) },
+    orderBy: { number: 'desc' },
+  });
+  if (!version) throw new Error('Publique uma versão válida antes de executar.');
+  const issues = validateWorkflow(version.snapshot as unknown as Workflow);
+  if (issues.length) throw new Error('A versão publicada é inválida.');
+  await validateConnections(tx, version.snapshot as unknown as Workflow, organizationId);
+  const persisted = params.externalContactKey
+    ? await tx.lead.upsert({
+        where: {
+          organizationId_workflowId_externalContactKey: {
+            organizationId,
+            workflowId,
+            externalContactKey: params.externalContactKey,
+          },
+        },
+        update: {},
+        create: {
+          ...key,
+          ...leadFields,
+          data: lead,
+          externalContactKey: params.externalContactKey,
+          lastInboundAt: params.inboundAt,
+        },
+      })
+    : await tx.lead.create({ data: { ...key, ...leadFields, data: lead } });
+  if (params.inboundAt)
+    await tx.lead.updateMany({
+      where: { id: persisted.id, OR: [{ lastInboundAt: null }, { lastInboundAt: { lt: params.inboundAt } }] },
+      data: { lastInboundAt: params.inboundAt },
     });
+  const execution = await tx.execution.create({
+    data: {
+      ...key,
+      leadId: persisted.id,
+      versionId: version.id,
+      status: 'QUEUED',
+      eventData: {
+        ...lead,
+        name: persisted.name,
+        company: persisted.company,
+        email: persisted.email,
+        phone: persisted.phone,
+        budget: persisted.budget,
+        score: persisted.score,
+      },
+    },
+    include,
+  });
+  return { execution, idempotentHit: false };
+}
+export async function enqueueWorkflowExecution(params: EnqueueParams) {
+  const { prisma, organizationId, workflowId, eventKey } = params;
+  try {
+    return await prisma.$transaction((tx) => enqueueInTransaction(tx, params));
   } catch (error) {
-    // The unique constraint is the authority when identical ingress requests race.
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       const execution = await prisma.execution.findUniqueOrThrow({
-        where: { organizationId_workflowId_eventKey: key },
+        where: { organizationId_workflowId_eventKey: { organizationId, workflowId, eventKey } },
         include,
       });
       return { execution, idempotentHit: true };
@@ -155,13 +181,24 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
           execution.version.workflowId !== execution.workflowId
         )
           throw new Error('INVALID_EXECUTION_CONTEXT');
-        const lead = leadSchema.parse(execution.lead.data);
+        const lead = leadSchema.parse(execution.eventData ?? execution.lead.data);
         const organizationId = execution.organizationId;
         const leadId = execution.lead.id;
         // Different message events may share a lead; serialize their local mutations as well.
         await tx.$queryRaw`SELECT "id" FROM "Lead" WHERE "id"=${leadId} AND "organization_id"=${organizationId} FOR UPDATE`;
         await validateConnections(tx, execution.version.snapshot as unknown as Workflow, organizationId);
         const effects = createProductionEffects({
+          updateConversationLead: async ({ field, value }) => {
+            if (!execution.eventKey.startsWith('whatsapp:')) throw new Error('WHATSAPP_CONTEXT_REQUIRED');
+            const current = await tx.lead.findUniqueOrThrow({ where: { id: leadId } });
+            const newer = await tx.execution.findFirst({
+              where: { leadId, organizationId, createdAt: { gt: execution.createdAt } },
+            });
+            if (newer) return { updated: false };
+            const data = { ...(current.data as Record<string, Prisma.JsonValue>), [field]: value };
+            await tx.lead.update({ where: { id: leadId }, data: { [field]: value, data } });
+            return { updated: true };
+          },
           sendWhatsapp: async ({ node }) => {
             const connection = await tx.whatsAppConnection.findFirstOrThrow({
               where: {
@@ -278,7 +315,41 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
             });
             return { notificationId: notification.id };
           },
-          sendEmail: async ({ to, subject, body }) => {
+          sendEmail: async ({ to, subject, body, connectionId, nodeId }) => {
+            if (connectionId) {
+              const connection = await tx.integrationConnection.findFirst({
+                where: {
+                  id: connectionId,
+                  organizationId,
+                  provider: 'RESEND',
+                  enabled: true,
+                  state: 'CONNECTED',
+                },
+              });
+              if (!connection?.credentials || !to) throw new Error('EMAIL_PROVIDER_NOT_CONFIGURED');
+              const notification = await tx.notification.create({
+                data: {
+                  organizationId,
+                  leadId,
+                  executionId: execution.id,
+                  integrationId: connection.id,
+                  nodeId,
+                  channel: 'EMAIL',
+                  recipient: to,
+                  title: subject,
+                  message: body,
+                  status: 'PENDING',
+                  payload: {
+                    to,
+                    subject,
+                    text: body,
+                    from: String((connection.settings as any).from),
+                    connectionRevision: connection.updatedAt.toISOString(),
+                  },
+                },
+              });
+              return { notificationId: notification.id, status: 'PENDING' as const };
+            }
             await tx.notification.create({
               data: {
                 organizationId,
@@ -388,8 +459,21 @@ export async function validateConnections(
   flow: Workflow,
   organizationId: string,
 ) {
+  for (const node of flow.nodes.filter((n) => n.type === 'email.send' && n.config.connectionId)) {
+    const connection = await db.integrationConnection.findFirst({
+      where: {
+        id: String(node.config.connectionId),
+        organizationId,
+        provider: 'RESEND',
+        state: 'CONNECTED',
+        enabled: true,
+      },
+    });
+    if (!connection?.credentials) throw new Error('EMAIL_CONNECTION_UNAVAILABLE');
+  }
   for (const node of flow.nodes.filter(
-    (n) => n.type.startsWith('whatsapp.') && n.type !== 'whatsapp.sdr.notify',
+    (n) =>
+      n.type.startsWith('whatsapp.') && !['whatsapp.sdr.notify', 'whatsapp.lead.update'].includes(n.type),
   )) {
     const connection = await db.whatsAppConnection.findFirst({
       where: { id: String(node.config.connectionId), organizationId },
@@ -409,7 +493,7 @@ export async function validateConnections(
   }
 }
 
-export async function dispatchNextWhatsApp(prisma: PrismaClient) {
+export async function dispatchNextWhatsApp(prisma: PrismaClient, transport?: Transport) {
   // Reconcile receipts that raced the provider response or arrived after a worker restart.
   await prisma.$executeRaw`
     UPDATE "Notification" n SET "status" = CASE
@@ -420,23 +504,9 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient) {
       FROM "WhatsAppEvent" WHERE "kind" IN ('SENT','DELIVERED','READ','FAILED') GROUP BY "connectionId", "providerEventId"
     ) r WHERE n."connectionId" = r."connectionId" AND n."providerMessageId" = r."providerEventId"
       AND (CASE n."status" WHEN 'READ' THEN 4 WHEN 'DELIVERED' THEN 3 WHEN 'FAILED' THEN 2 WHEN 'SENT' THEN 1 ELSE -1 END) < r.rank`;
-  // A process lost after provider acceptance cannot be retried blindly without provider idempotency.
-  await prisma.notification.updateMany({
-    where: { channel: 'WHATSAPP', status: 'PROCESSING', processingAt: { lt: new Date(Date.now() - 60000) } },
-    data: { status: 'FAILED', errorCode: 'DELIVERY_UNKNOWN_RECONCILIATION_REQUIRED' },
-  });
-  const id = await prisma.$transaction(async (tx) => {
-    const rows = await tx.$queryRaw<
-      Array<{ id: string }>
-    >`SELECT "id" FROM "Notification" WHERE "channel"='WHATSAPP' AND "status"='PENDING' AND "providerMessageId" IS NULL ORDER BY "createdAt" FOR UPDATE SKIP LOCKED LIMIT 1`;
-    if (!rows[0]) return null;
-    await tx.notification.update({
-      where: { id: rows[0].id },
-      data: { status: 'PROCESSING', processingAt: new Date(), attempt: { increment: 1 } },
-    });
-    return rows[0].id;
-  });
-  if (!id) return null;
+  const job = await reserveDelivery(prisma, 'WHATSAPP');
+  if (!job) return null;
+  const id = job.id;
   try {
     const notification = await prisma.notification.findUniqueOrThrow({
       where: { id },
@@ -475,6 +545,7 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient) {
       connection.provider,
       connection.settings as Settings,
       openSecrets(connection.credentials),
+      transport,
     );
     // Recheck the session at dispatch time, not only at publication time.
     if ((await adapter.status()) !== 'CONNECTED') throw new ConnectorError('SESSION_DISCONNECTED');
@@ -489,17 +560,15 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient) {
         : receipts.some((r) => r.kind === 'FAILED')
           ? 'FAILED'
           : result.status;
-    return prisma.notification.update({
-      where: { id },
-      data: { providerMessageId: result.providerMessageId, status },
+    await prisma.notification.updateMany({
+      where: { id, status: 'PROCESSING', deliveryToken: job.deliveryToken },
+      data: { providerMessageId: result.providerMessageId, status, deliveryToken: null, errorCode: null },
     });
+    return prisma.notification.findUniqueOrThrow({ where: { id } });
   } catch (error) {
-    return prisma.notification.update({
-      where: { id },
-      data: {
-        status: 'FAILED',
-        errorCode: error instanceof ConnectorError ? error.code : 'DELIVERY_UNKNOWN_RECONCILIATION_REQUIRED',
-      },
-    });
+    return failDelivery(prisma, job, error, false);
   }
 }
+
+export { processNextWhatsAppEvent } from './inbox';
+export { dispatchNextEmail } from './delivery';
