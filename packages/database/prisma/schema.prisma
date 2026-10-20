@@ -1,0 +1,63 @@
+
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+model Organization {
+  id        String     @id
+  name      String
+  createdAt DateTime   @default(now())
+  workflows Workflow[]
+  memberships Membership[]
+}
+model Membership {
+  id String @id
+  organizationId String @map("organization_id")
+  organization Organization @relation(fields: [organizationId], references: [id])
+  displayName String
+  role String
+  sessions DevelopmentSession[]
+  @@index([organizationId])
+}
+model DevelopmentSession {
+  tokenHash String @id
+  membershipId String
+  membership Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+}
+model Workflow {
+  id          String            @id @default(uuid())
+  organizationId String @map("organization_id")
+  organization Organization @relation(fields: [organizationId], references: [id])
+  draft       Json
+  revision    Int               @default(1)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  versions    WorkflowVersion[]
+  simulations Simulation[]
+  @@unique([id, organizationId])
+  @@index([organizationId, updatedAt])
+}
+model WorkflowVersion {
+  id         String   @id @default(uuid())
+  workflowId String
+  organizationId String @map("organization_id")
+  workflow   Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  number     Int
+  snapshot   Json
+  createdAt  DateTime @default(now())
+  @@unique([workflowId, number])
+}
+model Simulation {
+  id         String   @id @default(uuid())
+  workflowId String
+  organizationId String @map("organization_id")
+  workflow   Workflow @relation(fields: [workflowId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  snapshot   Json
+  steps      Json
+  status     String
+  createdAt  DateTime @default(now())
+  @@index([workflowId, createdAt])
+}

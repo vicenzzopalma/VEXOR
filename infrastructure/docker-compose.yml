@@ -1,0 +1,22 @@
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: eimax
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure uma senha local}
+      POSTGRES_DB: eimax
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["postgres-data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eimax"]
+      interval: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes: ["redis-data:/data"]
+volumes:
+  postgres-data:
+  redis-data:

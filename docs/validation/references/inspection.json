@@ -1,0 +1,66 @@
+
+[
+  {
+    "name": "workflow-dribbble",
+    "url": "https://dribbble.com/shots/21100197-Workflow-builder-Support-journey-builder-Low-code-automation",
+    "status": 202,
+    "title": "",
+    "images": [],
+    "buttons": [],
+    "bodyTextLength": 0
+  },
+  {
+    "name": "edge-crm",
+    "url": "https://crmedge.net/",
+    "status": 200,
+    "title": "Edge CRM",
+    "images": [
+      {
+        "src": "https://crmedge.net/images/edgecrm_logo-min.png",
+        "width": 1300,
+        "height": 313
+      },
+      {
+        "src": "https://crmedge.net/images/crm-dashboard_1520x952_min-1024x641.jpg",
+        "width": 1190,
+        "height": 745
+      },
+      {
+        "src": "",
+        "width": 570,
+        "height": 0
+      },
+      {
+        "src": "",
+        "width": 718,
+        "height": 450
+      }
+    ],
+    "buttons": [
+      "How does Edge CRM prevent missed follow-ups?",
+      "Can I track my sales team's performance in real-time?",
+      "How easy is it to migrate our data from spreadsheets?",
+      "Is the dashboard customizable for different roles?"
+    ],
+    "faqClicked": true,
+    "bodyTextLength": 3845
+  },
+  {
+    "name": "templates-dribbble",
+    "url": "https://dribbble.com/shots/27127142-AI-Automation-Workflow-Dashboard-Templates-Page",
+    "status": 202,
+    "title": "",
+    "images": [],
+    "buttons": [],
+    "bodyTextLength": 0
+  },
+  {
+    "name": "canva",
+    "url": "https://www.canva.com/online-whiteboard/",
+    "status": 403,
+    "title": "Um momento…",
+    "images": [],
+    "buttons": [],
+    "bodyTextLength": 181
+  }
+]

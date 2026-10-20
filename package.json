@@ -1,0 +1,66 @@
+
+{
+  "name": "eimax",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:web": "npm run dev -w @eimax/web",
+    "dev:api": "npm run dev -w @eimax/api",
+    "db:local": "node scripts/database.mjs",
+    "db:generate": "prisma generate --schema packages/database/prisma/schema.prisma",
+    "db:migrate": "prisma migrate deploy --schema packages/database/prisma/schema.prisma",
+    "build:packages": "tsc -b packages/workflow-schema packages/workflow-engine",
+    "build": "npm run build:packages && npm run db:generate && npm run build -w @eimax/api && npm run build -w @eimax/web",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "npm run build:packages && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
+    "test": "vitest run --config vitest.config.mts",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:e2e": "playwright test"
+  },
+  "engines": {
+    "node": ">=20.9"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "1.1.5",
+    "@fontsource/inter": "5.2.8",
+    "@nestjs/common": "11.2.7",
+    "@nestjs/core": "11.2.7",
+    "@nestjs/platform-express": "11.2.7",
+    "@prisma/client": "6.19.3",
+    "@xyflow/react": "12.12.0",
+    "lucide-react": "0.468.0",
+    "next": "16.4.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2",
+    "zod": "3.24.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.1",
+    "@playwright/test": "1.56.1",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/dagre": "0.7.52",
+    "@types/node": "22.10.5",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "dotenv": "16.6.1",
+    "embedded-postgres": "18.4.0-beta.17",
+    "eslint": "9.39.1",
+    "prettier": "3.6.2",
+    "prisma": "6.19.3",
+    "tailwindcss": "4.3.3",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "4.1.12"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2"
+  }
+}

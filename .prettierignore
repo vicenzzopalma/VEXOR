@@ -1,0 +1,11 @@
+
+node_modules
+.local
+**/.next
+**/dist
+**/next-env.d.ts
+TEMPLATES
+test-results
+playwright-report
+docs/validation
+package-lock.json
