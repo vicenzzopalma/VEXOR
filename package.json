@@ -20,7 +20,8 @@
     "typecheck": "npm run build:packages && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json",
     "test": "vitest run --config vitest.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "monstro": "node scripts/generate-monstro.mjs"
   },
   "engines": {
     "node": ">=20.9"
