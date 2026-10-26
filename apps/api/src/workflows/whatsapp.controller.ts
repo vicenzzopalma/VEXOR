@@ -51,6 +51,16 @@ export class WhatsAppController {
   create(@Req() req: AuthorizedRequest, @Body() body: unknown) {
     return this.whatsapp.save(req.access.organizationId, body);
   }
+  @Post('integrations/whatsapp/managed')
+  @Roles('owner')
+  createManaged(@Req() req: AuthorizedRequest, @Body() body: unknown) {
+    return this.whatsapp.saveManaged(req.access.organizationId, body);
+  }
+  @Patch('integrations/whatsapp/:id/managed')
+  @Roles('owner')
+  renameManaged(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.whatsapp.saveManaged(req.access.organizationId, body, id);
+  }
   @Patch('integrations/whatsapp/:id')
   @Roles('owner')
   update(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
@@ -61,10 +71,30 @@ export class WhatsAppController {
   createInstance(@Req() req: AuthorizedRequest, @Param('id') id: string) {
     return this.whatsapp.operate(id, req.access.organizationId, 'create-instance');
   }
+  @Post('integrations/whatsapp/:id/archive')
+  @Roles('owner')
+  archive(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.whatsapp.archive(id, req.access.organizationId, body);
+  }
   @Post('integrations/whatsapp/:id/reconnect')
   @Roles('owner')
   reconnect(@Req() req: AuthorizedRequest, @Param('id') id: string) {
     return this.whatsapp.operate(id, req.access.organizationId, 'reconnect');
+  }
+  @Post('integrations/whatsapp/:id/release-quarantine')
+  @Roles('owner')
+  releaseQuarantine(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.whatsapp.releaseQuarantine(id, req.access.organizationId, body);
+  }
+  @Post('integrations/whatsapp/:id/simulate')
+  @Roles('owner', 'editor')
+  simulate(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.whatsapp.simulate(id, req.access.organizationId, body);
+  }
+  @Post('integrations/whatsapp/:id/pairing-code')
+  @Roles('owner')
+  pairingCode(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
+    return this.whatsapp.pairingCode(id, req.access.organizationId, body);
   }
   @Post('integrations/whatsapp/:id/connect')
   @Roles('owner')
@@ -85,11 +115,15 @@ export class WhatsAppController {
   @SetMetadata('public', true)
   verify(
     @Param('id') id: string,
-    @Query('hub.mode') mode = '',
-    @Query('hub.verify_token') token = '',
-    @Query('hub.challenge') challenge = '',
-    @Req() req: { socket: { remoteAddress?: string } },
+    @Query('hub.mode') modeQuery = '',
+    @Query('hub.verify_token') tokenQuery = '',
+    @Query('hub.challenge') challengeQuery = '',
+    @Req() req: { query?: Record<string, any>; socket: { remoteAddress?: string } },
   ) {
+    const query = (req?.query ?? {}) as Record<string, any>;
+    const mode = modeQuery || query['hub.mode'] || query.hub?.mode || '';
+    const token = tokenQuery || query['hub.verify_token'] || query.hub?.verify_token || '';
+    const challenge = challengeQuery || query['hub.challenge'] || query.hub?.challenge || '';
     return this.ingress.handle('WHATSAPP', id, req.socket.remoteAddress ?? 'unknown', () =>
       this.whatsapp.verify(id, mode, token, challenge),
     );
@@ -102,9 +136,10 @@ export class WhatsAppController {
     @Req() req: { rawBody?: Buffer; socket: { remoteAddress?: string } },
     @Headers('x-hub-signature-256') signature = '',
     @Headers('x-whatsapp-secret') secret = '',
+    @Headers('client-token') clientToken = '',
   ) {
     return this.ingress.handle('WHATSAPP', id, req.socket.remoteAddress ?? 'unknown', () =>
-      this.whatsapp.webhook(id, body, req.rawBody ?? Buffer.alloc(0), signature, secret),
+      this.whatsapp.webhook(id, body, req.rawBody ?? Buffer.alloc(0), signature, secret || clientToken),
     );
   }
 }

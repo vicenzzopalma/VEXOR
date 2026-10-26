@@ -1,0 +1,152 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-10-26T16:09:14.625Z",
+  "mode": "read_only_local_files_and_authorized_read_only_local_postgresql",
+  "user_report": "User clarification: account is under review (EM ANALISE); permanent ban is not established",
+  "installed_versions": {
+    "evolution": "2.3.7",
+    "baileys": "7.0.0-rc.9"
+  },
+  "quarantine": {
+    "present": true,
+    "modified_at_utc": "2026-10-26T16:00:48.907154+00:00",
+    "recorded_timestamp": "2026-10-26T16:00:48.906Z"
+  },
+  "log_sources": [
+    {
+      "label": "supervised_gateway_log",
+      "exists": true,
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "modified_at_utc": "2026-10-26T15:43:05.642512+00:00"
+    }
+  ],
+  "log_line_counts": {
+    "connection_close_lines": 0,
+    "connection_open_lines": 0,
+    "registered_true_lines": 0,
+    "registered_false_lines": 0,
+    "status_reason_codes": {
+      "401": 0,
+      "403": 0,
+      "405": 0,
+      "408": 0,
+      "411": 0,
+      "428": 0,
+      "440": 0,
+      "500": 0,
+      "515": 0
+    }
+  },
+  "sanitized_timeline": [],
+  "interpretation": {
+    "connection_open_observed_in_reviewed_logs": false,
+    "registered_true_observed_in_reviewed_logs": false,
+    "absence_is_not_evidence_of_no_connection": true,
+    "ban_confirmed_by_logs": false,
+    "causal_attribution": "undetermined",
+    "codes_401_405_428_do_not_establish_ban": true,
+    "timestamps_of_files_are_not_handshake_timestamps": true,
+    "registered_state": "unknown; credential contents not inspected"
+  },
+  "private_session_file_inventory": {
+    "instances_directory_present": true,
+    "json_files_count": 0,
+    "filenames_and_contents_emitted": false,
+    "database_not_queried": false,
+    "database_credentials_not_queried": true
+  },
+  "static_configuration": {
+    "source_of_values": "scripts/lib/local-whatsapp.mjs; intended launch environment, not a live-process or historical-environment assertion",
+    "client_label": "VEXOR",
+    "browser_label": "Chrome",
+    "redis_enabled": false,
+    "database_save_instance": true,
+    "message_dispatch_enabled": false,
+    "session_operations_enabled_before_quarantine": true,
+    "baileys_logging": "silent",
+    "gateway_logging_levels": [
+      "ERROR",
+      "WARN"
+    ],
+    "full_history_setting_database_default": false,
+    "always_online_setting_database_default": false,
+    "runtime_instance_settings_not_queried": true
+  },
+  "static_network_behaviors": {
+    "automatic_reconnect_excluded_codes": [
+      401,
+      403,
+      402,
+      406
+    ],
+    "automatic_reconnect_other_close_codes": true,
+    "startup_autoconnect_stored_states": [
+      "open",
+      "connecting"
+    ],
+    "version_lookup_on_each_create_client": true,
+    "fire_initial_queries": true,
+    "presence_announcement_on_open_even_when_offline": true,
+    "profile_picture_lookup_on_open": true,
+    "protocol_prekey_upload_and_key_bundle_check_on_login": true,
+    "conditional_auto_reply_to_inbound_call_exists": true,
+    "vexor_message_gate_does_not_cover_upstream_internal_protocol_actions": true
+  },
+  "restrictions_respected": {
+    "whatsapp_gateway_or_socket_started": false,
+    "http_or_external_network_requests_performed": false,
+    "authorized_local_database_read_only_queries": true,
+    "provider_calls_performed": false,
+    "messages_sent": false,
+    "sessions_deleted_or_modified": false,
+    "versions_changed": false,
+    "raw_logs_or_identifiers_published": false
+  },
+  "limitations": [
+    "Supervised gateway log is empty; terminal-only logs are not reconstructed by this artifact",
+    "Source behavior does not prove execution during the incident",
+    "No original WhatsApp restriction notice, exact user scan time or provider-side reason is available in the reviewed files",
+    "Build and PostgreSQL logs are not used as WhatsApp session-event evidence",
+    "Database state is a current snapshot, not an event history; session credential contents were not queried",
+    "Zero persisted Message/Notification rows do not exclude handshake, sync, presence or other upstream network traffic",
+    "EM ANALISE is user-reported; no permanent ban or provider-side cause is established"
+  ],
+  "database_observation": {
+    "queried_at_utc": "2026-10-26T16:06:21.732Z",
+    "mode": "read_only_transactions",
+    "credentials_or_connection_identifiers_emitted": false,
+    "vexor_connection": {
+      "state": "CONNECTING",
+      "enabled": true,
+      "last_error_code": null,
+      "created_at": "2026-10-20 19:28:09.119",
+      "updated_at": "2026-10-26 16:00:47.195",
+      "checked_at": "2026-10-26 16:00:47.193"
+    },
+    "vexor_notifications": {
+      "total": 0,
+      "whatsapp_total": 0
+    },
+    "vexor_events": {
+      "total": 0
+    },
+    "gateway_instance_present": true,
+    "gateway_instance": {
+      "state": "connecting",
+      "disconnection_reason_code": null,
+      "disconnection_at": null,
+      "created_at": "2026-10-26 15:52:00.124",
+      "updated_at": "2026-10-26 16:00:33.745"
+    },
+    "gateway_messages": {
+      "total": 0
+    },
+    "gateway_session_records": {
+      "total": 1
+    },
+    "completed": true,
+    "timestamp_semantics": "Stored timestamp-without-time-zone strings; no timezone offset inferred and no pg Date conversion used",
+    "session_record_is_not_proof_of_registered_or_connected": true
+  }
+}

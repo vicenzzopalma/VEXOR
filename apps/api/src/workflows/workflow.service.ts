@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { createSdrTemplate, validateWorkflow, type Workflow } from '@eimax/workflow-schema';
@@ -20,7 +20,7 @@ import {
   simulateSchema,
 } from './contracts';
 import { processWorkflowExecution } from './runner';
-import { validateConnections } from '@eimax/workflow-runtime';
+import { validateConnections, resumeDueExecution } from '@eimax/workflow-runtime';
 import { equalSecret, verifySignature } from '@eimax/connectors';
 import { encryptCpf, hashPassword, MemoryRateLimiter, validCpf, verifyPassword } from '../common/security';
 
@@ -242,6 +242,22 @@ export class WorkflowService {
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {
+        checkpoints: {
+          orderBy: { suspendedAt: 'asc' },
+          select: {
+            id: true,
+            nodeId: true,
+            nextNodeId: true,
+            versionId: true,
+            resumeAt: true,
+            expiresAt: true,
+            status: true,
+            suspendedAt: true,
+            resumedAt: true,
+            consumedAt: true,
+            recoveryError: true,
+          },
+        },
         steps: { orderBy: { createdAt: 'asc' } },
         lead: {
           include: { assignedMembership: true },
@@ -255,6 +271,11 @@ export class WorkflowService {
       eventKey: r.eventKey,
       status: r.status,
       attempt: r.attempt,
+      checkpoints: r.checkpoints,
+      versionId: r.versionId,
+      errorCode: r.errorCode,
+      attemptHistory: r.attemptHistory,
+      durationMs: r.durationMs,
       result: r.result,
       createdAt: r.createdAt,
       finishedAt: r.finishedAt,
@@ -278,6 +299,22 @@ export class WorkflowService {
     const row = await this.db.execution.findFirst({
       where: { id, organizationId },
       include: {
+        checkpoints: {
+          orderBy: { suspendedAt: 'asc' },
+          select: {
+            id: true,
+            nodeId: true,
+            nextNodeId: true,
+            versionId: true,
+            resumeAt: true,
+            expiresAt: true,
+            status: true,
+            suspendedAt: true,
+            resumedAt: true,
+            consumedAt: true,
+            recoveryError: true,
+          },
+        },
         steps: { orderBy: { createdAt: 'asc' } },
         lead: {
           include: { assignedMembership: true },
@@ -292,6 +329,11 @@ export class WorkflowService {
       eventKey: row.eventKey,
       status: row.status,
       attempt: row.attempt,
+      checkpoints: row.checkpoints,
+      versionId: row.versionId,
+      errorCode: row.errorCode,
+      attemptHistory: row.attemptHistory,
+      durationMs: row.durationMs,
       result: row.result,
       createdAt: row.createdAt,
       finishedAt: row.finishedAt,
@@ -311,6 +353,13 @@ export class WorkflowService {
       steps: row.steps,
       notifications: row.notifications,
     };
+  }
+
+  async resumeExecution(id: string, organizationId: string) {
+    await this.getExecution(id, organizationId);
+    const result = await resumeDueExecution(this.db, { executionId: id, organizationId });
+    if (!result) throw new ConflictException('A execução não está aguardando uma retomada vencida.');
+    return this.getExecution(id, organizationId);
   }
 
   async listLeads(organizationId: string, workflowId?: string, status?: string) {
@@ -338,6 +387,7 @@ export class WorkflowService {
 
     return leads.map((l) => ({
       id: l.id,
+      revision: l.revision,
       workflowId: l.workflowId,
       eventKey: l.eventKey,
       name: l.name,
@@ -418,6 +468,7 @@ export class WorkflowService {
     id: string,
     organizationId: string,
     data: {
+      expectedRevision: number;
       status?: string;
       assignedMembershipId?: string | null;
       tags?: string[];
@@ -425,31 +476,42 @@ export class WorkflowService {
       phone?: string;
     },
   ) {
-    await this.getLead(id, organizationId);
+    const existing = await this.db.lead.findFirst({ where: { id, organizationId }, select: { id: true } });
+    if (!existing) throw new NotFoundException('Lead não encontrado.');
     if (data.assignedMembershipId) {
       const eligible = await this.db.membership.findFirst({
         where: { id: data.assignedMembershipId, organizationId, role: { in: ['owner', 'editor'] } },
       });
       if (!eligible) throw new BadRequestException('Responsável indisponível nesta organização.');
     }
-    const updated = await this.db.lead.update({
-      where: { id },
-      data: {
-        ...(data.status ? { status: data.status } : {}),
-        ...(data.assignedMembershipId !== undefined
-          ? { assignedMembershipId: data.assignedMembershipId }
-          : {}),
-        ...(data.tags ? { tags: data.tags } : {}),
-        ...(data.whatsappConsent !== undefined ? { whatsappConsent: data.whatsappConsent } : {}),
-        ...(data.phone !== undefined ? { phone: data.phone } : {}),
-      },
-      include: {
-        assignedMembership: {
-          select: { id: true, displayName: true, role: true },
+    try {
+      return await this.db.lead.update({
+        // PostgreSQL rechecks this predicate after a concurrent updater commits.
+        // The trigger increments revision for every writer, including the worker.
+        where: { id, organizationId, revision: data.expectedRevision },
+        data: {
+          ...(data.status ? { status: data.status } : {}),
+          ...(data.assignedMembershipId !== undefined
+            ? { assignedMembershipId: data.assignedMembershipId }
+            : {}),
+          ...(data.tags ? { tags: data.tags } : {}),
+          ...(data.whatsappConsent !== undefined ? { whatsappConsent: data.whatsappConsent } : {}),
+          ...(data.phone !== undefined ? { phone: data.phone } : {}),
         },
-      },
-    });
-    return updated;
+        include: {
+          assignedMembership: {
+            select: { id: true, displayName: true, role: true },
+          },
+        },
+      });
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2025') throw error;
+      const scoped = await this.db.lead.findFirst({ where: { id, organizationId }, select: { id: true } });
+      if (!scoped) throw new NotFoundException('Lead não encontrado.');
+      throw new ConflictException(
+        'Este lead foi atualizado em outra aba ou por uma automação. Recarregue os dados antes de salvar.',
+      );
+    }
   }
 
   async listNotifications(organizationId: string, leadId?: string) {

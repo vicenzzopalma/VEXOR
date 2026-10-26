@@ -10,6 +10,7 @@ datasource db {
 enum ExecutionStatus {
   QUEUED
   RUNNING
+  SUSPENDED
   COMPLETED
   FAILED
 }
@@ -144,6 +145,7 @@ model Lead {
   lastInboundAt        DateTime?
   externalContactKey   String?
   status               String        @default("NEW") // "NEW", "QUALIFIED", "DISQUALIFIED", "IN_PROGRESS", "CONVERTED"
+  revision             Int           @default(1)
   assignedMembershipId String?       @map("assigned_membership_id")
   assignedMembership   Membership?   @relation(fields: [assignedMembershipId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   tags                 Json          @default("[]")
@@ -176,6 +178,7 @@ model Execution {
   eventData      Json?
   errorCode      String?
   attempt        Int             @default(0)
+  segmentAttempt Int             @default(0)
   attemptHistory Json            @default("[]")
   createdAt      DateTime        @default(now())
   startedAt      DateTime?
@@ -187,10 +190,36 @@ model Execution {
   finishedAt     DateTime?
   steps          ExecutionStep[]
   notifications  Notification[]
+  checkpoints    ExecutionCheckpoint[]
 
   @@unique([organizationId, workflowId, eventKey])
+  @@unique([id, organizationId, workflowId, versionId])
   @@index([organizationId, createdAt])
   @@index([workflowId, status])
+}
+
+model ExecutionCheckpoint {
+  id             String    @id @default(uuid())
+  executionId    String    @map("execution_id")
+  organizationId String    @map("organization_id")
+  workflowId     String    @map("workflow_id")
+  versionId      String    @map("version_id")
+  execution      Execution @relation(fields: [executionId, organizationId, workflowId, versionId], references: [id, organizationId, workflowId, versionId], onDelete: Restrict, onUpdate: NoAction, map: "ExecutionCheckpoint_execution_id_organization_id_workflow_id_fk")
+  nodeId         String
+  nextNodeId     String?
+  state          Json
+  resumeAt       DateTime
+  expiresAt      DateTime?
+  status         String    @default("WAITING")
+  revision       Int       @default(1)
+  suspendedAt    DateTime  @default(now())
+  resumedAt      DateTime?
+  consumedAt     DateTime?
+  recoveryError  String?
+  updatedAt      DateTime  @updatedAt
+
+  @@index([status, resumeAt])
+  @@index([organizationId, executionId, suspendedAt], map: "ExecutionCheckpoint_organization_id_execution_id_suspendedAt_id")
 }
 
 model ExecutionStep {
@@ -256,6 +285,8 @@ model WhatsAppConnection {
   credentials    String?
   lastError      String?
   checkedAt      DateTime?
+  quarantinedAt    DateTime?
+  quarantineReason String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   notifications  Notification[]

@@ -189,6 +189,12 @@ export class WorkflowController {
     return this.workflows.getExecution(id, req.access.organizationId);
   }
 
+  @Post('executions/:id/resume')
+  @Roles('owner', 'editor')
+  resumeExecution(@Param('id') id: string, @Req() req: AuthorizedRequest) {
+    return this.workflows.resumeExecution(id, req.access.organizationId);
+  }
+
   // --- Lead Management (Phase 2 & Real Cycle) ---
 
   @Get('leads')
@@ -218,9 +224,10 @@ export class WorkflowController {
   updateLead(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
     const schema = z
       .object({
+        expectedRevision: z.number().int().positive().max(2147483647),
         status: z.string().trim().min(1).max(50).optional(),
         assignedMembershipId: z.string().trim().nullable().optional(),
-        tags: z.array(z.string().trim()).optional(),
+        tags: z.array(z.string().trim().min(1).max(60)).max(50).optional(),
         whatsappConsent: z.boolean().optional(),
         phone: z
           .string()

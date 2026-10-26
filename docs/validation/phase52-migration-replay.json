@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-20T20:23:14.773Z",
+  "generatedAt": "2026-10-26T20:00:38.282Z",
   "evidenceType": "isolated-local-migration-replay",
   "database": "eimax_phase52_migration_replay",
   "reset": false,
@@ -43,6 +43,15 @@
     },
     {
       "name": "202610200013_phase52_historical_integrity"
+    },
+    {
+      "name": "202610210014_phase6a_durable_wait"
+    },
+    {
+      "name": "202610260015_lead_revision"
+    },
+    {
+      "name": "202610260016_whatsapp_connection_quarantine"
     }
   ],
   "triggers": [
@@ -54,6 +63,9 @@
     },
     {
       "name": "commercial_notification_scope"
+    },
+    {
+      "name": "execution_transition"
     },
     {
       "name": "immutable_execution_scope"
@@ -74,10 +86,16 @@
       "name": "immutable_workflow_version_truncate"
     },
     {
+      "name": "lead_revision_before_update"
+    },
+    {
       "name": "protect_published_workflow_deletion"
     },
     {
       "name": "protect_workflow_truncate"
+    },
+    {
+      "name": "suspended_checkpoint"
     }
   ]
 }

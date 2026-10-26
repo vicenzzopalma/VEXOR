@@ -51,6 +51,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 export type Run = SimulationResult & { workflowId: string };
 
 export type LeadRecord = {
+  revision: number;
   phone: string;
   whatsappConsent: boolean;
   id: string;
@@ -100,6 +101,20 @@ export type NotificationRecord = {
 };
 
 export type ExecutionRecord = {
+  versionId?: string;
+  checkpoints?: Array<{
+    id: string;
+    nodeId: string;
+    nextNodeId: string | null;
+    versionId: string;
+    resumeAt: string;
+    expiresAt?: string | null;
+    status: string;
+    suspendedAt: string;
+    resumedAt?: string | null;
+    consumedAt?: string | null;
+    recoveryError?: string | null;
+  }>;
   errorCode?: string;
   id: string;
   workflowId: string;

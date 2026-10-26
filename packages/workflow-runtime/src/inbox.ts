@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { type Workflow } from '@eimax/workflow-schema';
+import { QUARANTINE_STATUS_REASONS } from '@eimax/connectors';
 import { enqueueInTransaction } from './index';
 
 export async function processNextWhatsAppEvent(db: PrismaClient) {
@@ -22,11 +23,25 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
             where: { id: event.id },
             data: { status: 'IGNORED', processedAt: new Date(), errorCode: 'CONNECTION_DISABLED' },
           });
-        if (event.kind === 'CONNECTION_CLOSED')
+        if (event.kind === 'CONNECTION_CLOSED') {
+          const reason = (event.payload as { statusReason?: number }).statusReason;
+          // Like VERITAS: a logged-out/banned session is isolated on its own connection only.
+          // It stays off until an owner releases it; other numbers keep working.
+          const quarantine = reason !== undefined && QUARANTINE_STATUS_REASONS.includes(reason);
           await tx.whatsAppConnection.update({
             where: { id: connection.id },
-            data: { state: 'DISCONNECTED', checkedAt: new Date() },
+            data: quarantine
+              ? {
+                  state: 'ERROR',
+                  enabled: false,
+                  checkedAt: new Date(),
+                  lastError: `SESSION_CLOSED_${reason}`,
+                  quarantinedAt: connection.quarantinedAt ?? new Date(),
+                  quarantineReason: connection.quarantineReason ?? `PROVIDER_STATUS_${reason}`,
+                }
+              : { state: 'DISCONNECTED', checkedAt: new Date() },
           });
+        }
         if (event.kind === 'MESSAGE') {
           const payload = event.payload as {
             from: string;

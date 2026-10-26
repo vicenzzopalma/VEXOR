@@ -19,7 +19,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="app-shell">
       <aside className="nav-rail" aria-label="Navegação principal">
-        <Link className="brand-symbol" href="/editor/starter-sdr" aria-label="EIMAX, abrir editor">
+        <Link className="brand-symbol" href="/editor/starter-sdr" aria-label="VEXOR, abrir editor">
           <Workflow size={24} strokeWidth={2.4} />
         </Link>
         <div className="rail-items">
@@ -60,7 +60,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className="app-main">
         <header className="global-header">
           <div className="brand-word">
-            eimax<span>studio</span>
+            VEXOR<span>studio</span>
           </div>
           <div className="global-divider" />
           <span className="workspace-name">Meu espaço de trabalho</span>

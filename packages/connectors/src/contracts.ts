@@ -35,6 +35,7 @@ export type ConnectorDefinition = {
   triggers: Operation[];
   capabilities: {
     qr: boolean;
+    pairingCode: boolean;
     createInstance: boolean;
     templates: boolean;
     oauth: boolean;
@@ -72,6 +73,7 @@ export const sheetMappingSchema = z
   });
 const baseCapabilities = {
   qr: false,
+  pairingCode: false,
   createInstance: false,
   templates: false,
   oauth: false,
@@ -155,7 +157,87 @@ export const connectorRegistry: Record<string, ConnectorDefinition> = {
         schema: z.object({ id: identifier, from: identifier, text: z.string().max(10000) }),
       },
     ],
-    capabilities: { ...baseCapabilities, qr: true, createInstance: true, deliveryReceipts: true },
+    capabilities: {
+      ...baseCapabilities,
+      qr: true,
+      pairingCode: true,
+      createInstance: true,
+      deliveryReceipts: true,
+    },
+  },
+  Z_API: {
+    id: 'whatsapp.zapi',
+    version: '1.0.0',
+    name: 'Z-API WhatsApp',
+    channel: 'WHATSAPP',
+    authentication: 'api-key',
+    implementation: 'adapter',
+    settingsSchema: z
+      .object({
+        origin: z.string().url().default('https://api.z-api.io'),
+        instance: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+      })
+      .strict(),
+    // Secrets live only in encrypted credentials, never in plaintext settings.
+    credentialsSchema: z
+      .object({
+        token: z.string().regex(/^[a-zA-Z0-9_-]{1,200}$/),
+        clientToken: token,
+      })
+      .strict(),
+    fields: [
+      { key: 'origin', label: 'Gateway Z-API', type: 'url' },
+      { key: 'instance', label: 'ID da Instância Z-API', type: 'text', required: true },
+    ],
+    secretFields: [
+      { key: 'token', label: 'Token da Instância', type: 'password' },
+      { key: 'clientToken', label: 'Client-Token de Segurança', type: 'password' },
+    ],
+    actions: [
+      { id: 'text.send', label: 'Enviar texto', schema: message },
+    ],
+    triggers: [
+      {
+        id: 'message.received',
+        label: 'Mensagem recebida',
+        schema: z.object({ id: identifier, from: identifier, text: z.string().max(10000) }),
+      },
+    ],
+    // Templates are only implemented for the official Meta platform.
+    capabilities: { ...baseCapabilities, qr: true, pairingCode: true, deliveryReceipts: true },
+  },
+  MOCK: {
+    id: 'whatsapp.mock',
+    version: '1.0.0',
+    name: 'WhatsApp Sandbox Mock',
+    channel: 'WHATSAPP',
+    authentication: 'api-key',
+    implementation: 'adapter',
+    settingsSchema: z
+      .object({
+        mockName: z.string().min(1).max(100).optional(),
+      })
+      .strict(),
+    credentialsSchema: z.object({}).strict(),
+    fields: [{ key: 'mockName', label: 'Nome do ambiente mock', type: 'text' }],
+    secretFields: [],
+    actions: [
+      { id: 'text.send', label: 'Enviar texto (simulado)', schema: message },
+    ],
+    triggers: [
+      {
+        id: 'message.received',
+        label: 'Mensagem recebida (simulada)',
+        schema: z.object({ id: identifier, from: identifier, text: z.string().max(10000) }),
+      },
+    ],
+    capabilities: {
+      ...baseCapabilities,
+      qr: true,
+      pairingCode: true,
+      createInstance: true,
+      deliveryReceipts: true,
+    },
   },
   RESEND: {
     id: 'email.resend',
@@ -286,6 +368,10 @@ export function publicConnectorSettings(provider: string, input: unknown): Recor
       .max(100)
       .safeParse((input as Record<string, unknown>)?.approvedTemplates);
     if (templates.success) settings.approvedTemplates = templates.data;
+  }
+  if (provider === 'Z_API') {
+    delete settings.token;
+    delete settings.clientToken;
   }
   return settings;
 }

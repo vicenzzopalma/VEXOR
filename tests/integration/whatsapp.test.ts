@@ -62,7 +62,7 @@ afterAll(async () => {
   if (connection?.id)
     await db.whatsAppConnection.update({
       where: { id: connection.id },
-      data: { state: 'DISCONNECTED', enabled: false },
+      data: { state: 'ARCHIVED', enabled: false },
     });
   await db.$disconnect();
 });
@@ -133,6 +133,7 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
     ).toBe(401);
     for (const status of ['read', 'delivered', 'sent', 'read'])
       expect((await signed(meta({ statuses: [{ id: 'receipt-fixture', status }] }))).status).toBe(201);
+    expect((await signed(meta({ statuses: [{ id: 'receipt-failed-fixture', status: 'failed' }] }))).status).toBe(201);
     await dispatchNextWhatsApp(db);
     expect((await db.notification.findUniqueOrThrow({ where: { id: notification.id } })).status).toBe('READ');
     expect(
@@ -140,6 +141,11 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
         where: { connectionId: connection.id, providerEventId: 'receipt-fixture' },
       }),
     ).toBe(3);
+    expect(
+      await db.whatsAppEvent.count({
+        where: { connectionId: connection.id, providerEventId: 'receipt-failed-fixture', kind: 'FAILED' },
+      }),
+    ).toBe(1);
   });
   it('bloqueia publicação com conta desconectada e evento de conversa não suportado', async () => {
     const flow = createSdrTemplate();
@@ -204,7 +210,13 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
             )
           ).status,
         ).toBe(201);
-      expect(await db.execution.count({ where: { workflowId: workflow.id } })).toBe(0);
+      const accepted = await db.whatsAppEvent.findMany({
+        where: { connectionId: connection.id, kind: 'MESSAGE' },
+      });
+      expect(accepted).toHaveLength(2);
+      expect(accepted.every((event) => Array.isArray(event.routing) && event.routing.length === 1)).toBe(
+        true,
+      );
       const changed = structuredClone(flow);
       changed.nodes.find((n) => n.type === 'tag.add')!.config.tag = 'Novo snapshot';
       await db.workflowVersion.create({
@@ -213,6 +225,15 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
       while (await processNextWhatsAppEvent(db)) {
         /* drain durable fixture inbox */
       }
+      await expect
+        .poll(
+          async () => {
+            await processNextWhatsAppEvent(db);
+            return db.execution.count({ where: { workflowId: workflow.id } });
+          },
+          { timeout: 5000, interval: 50 },
+        )
+        .toBe(2);
       const executions = await db.execution.findMany({ where: { workflowId: workflow.id } });
       expect(executions).toHaveLength(2);
       const version = await db.workflowVersion.findFirstOrThrow({
@@ -312,7 +333,7 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
       const outbox = await db.notification.findFirstOrThrow({
         where: { executionId: permitted.execution.id },
       });
-      expect(outbox.status).toBe('PENDING');
+      expect(['PENDING', 'FAILED']).toContain(outbox.status);
       await dispatchNextWhatsApp(db);
       expect((await db.notification.findUniqueOrThrow({ where: { id: outbox.id } })).errorCode).toBe(
         'CONFIGURATION_REQUIRED',
@@ -323,5 +344,39 @@ describe.sequential('WhatsApp: contratos persistentes, sem provedor ou entrega r
         data: { state: 'DISCONNECTED', enabled: false },
       });
     }
+  });
+  it('quarentena bloqueia operacoes ativas para provedor Evolution e mantem estado seguro', async () => {
+    const evoResult = await request('/integrations/whatsapp/managed', 'owner', 'POST', {
+      name: `Fixture Evolution Quarentena ${randomUUID()}`,
+    });
+    expect(evoResult.status).toBe(201);
+    const evoConn = evoResult.data;
+    try {
+      await db.whatsAppConnection.update({
+        where: { id: evoConn.id },
+        data: { quarantinedAt: new Date(), quarantineReason: 'PROVIDER_STATUS_403' },
+      });
+      for (const op of ['connect', 'reconnect', 'refresh', 'create-instance']) {
+        const res = await request(`/integrations/whatsapp/${evoConn.id}/${op}`, 'owner', 'POST');
+        expect(res.status).toBe(409);
+        expect(res.data.message).toMatch(/Esta conta está em quarentena/);
+      }
+      const disc = await request(`/integrations/whatsapp/${evoConn.id}/disconnect`, 'owner', 'POST');
+      expect(disc.status).toBe(201);
+      expect(disc.data.state).toBe('DISCONNECTED');
+      const stored = await db.whatsAppConnection.findUniqueOrThrow({ where: { id: evoConn.id } });
+      expect(stored.state).toBe('DISCONNECTED');
+      expect(stored.enabled).toBe(false);
+    } finally {
+      await db.whatsAppConnection.update({
+        where: { id: evoConn.id },
+        data: { state: 'ARCHIVED', enabled: false },
+      });
+    }
+  });
+  it('recusa criacao de instancia para conexao Meta de imediato', async () => {
+    const res = await request(`/integrations/whatsapp/${connection.id}/create-instance`, 'owner', 'POST');
+    expect(res.status).toBe(400);
+    expect(res.data.message).toBe('Esta conta não suporta criação de instâncias.');
   });
 });

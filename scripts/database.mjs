@@ -34,20 +34,27 @@ export async function startDatabase() {
   // pg_ctl drops Windows Administrator privileges for the server process.
   // Direct postgres.exe refuses Administrator; no service/account changes are needed.
   const pgCtl = resolve('node_modules/@embedded-postgres/windows-x64/native/bin/pg_ctl.exe');
-  if (process.platform === 'win32')
-    await execute(pgCtl, [
-      'start',
-      '-D',
-      databaseDir,
-      '-l',
-      resolve('.local/postgres.log'),
-      '-o',
-      '-h 127.0.0.1 -p 55432',
-      '-w',
-      '-t',
-      '30',
-    ]);
-  else await pg.start();
+  if (process.platform === 'win32') {
+    let alreadyRunning = false;
+    try {
+      await execute(pgCtl, ['status', '-D', databaseDir]);
+      alreadyRunning = true;
+    } catch {}
+    if (!alreadyRunning) {
+      await execute(pgCtl, [
+        'start',
+        '-D',
+        databaseDir,
+        '-l',
+        resolve('.local/postgres.log'),
+        '-o',
+        '-h 127.0.0.1 -p 55432',
+        '-w',
+        '-t',
+        '30',
+      ]);
+    }
+  } else await pg.start();
   const client = pg.getPgClient('postgres', '127.0.0.1');
   await client.connect();
   const result = await client.query("SELECT 1 FROM pg_database WHERE datname='eimax'");

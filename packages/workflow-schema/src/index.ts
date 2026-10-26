@@ -128,6 +128,49 @@ export const catalog: Record<
 };
 
 const shortText = z.string().trim().min(1, 'Preencha este campo.').max(200);
+export const waitConfigSchema = z.union([
+  z.object({ minutes: z.number().int().min(1).max(43200) }).strict(),
+  z
+    .object({
+      mode: z.literal('duration'),
+      amount: z.number().int().min(1).max(31622400),
+      unit: z.enum(['seconds', 'minutes', 'hours', 'days']),
+      resumeDeadlineMinutes: z.number().int().min(1).max(43200).optional(),
+    })
+    .strict()
+    .refine(
+      (c) => c.amount * { seconds: 1, minutes: 60, hours: 3600, days: 86400 }[c.unit] <= 31622400,
+      'A espera máxima é de 366 dias.',
+    ),
+  z
+    .object({
+      mode: z.literal('until'),
+      at: z.string().datetime({ offset: true, message: 'Informe uma data válida com fuso horário.' }),
+      resumeDeadlineMinutes: z.number().int().min(1).max(43200).optional(),
+    })
+    .strict(),
+]);
+
+export function waitSchedule(config: Record<string, unknown>, now = new Date()) {
+  const c = waitConfigSchema.parse(config);
+  const resumeAt = new Date(
+    'minutes' in c
+      ? now.getTime() + c.minutes * 60000
+      : c.mode === 'until'
+        ? c.at
+        : now.getTime() +
+          c.amount * { seconds: 1000, minutes: 60000, hours: 3600000, days: 86400000 }[c.unit],
+  );
+  if (!Number.isFinite(resumeAt.getTime()) || resumeAt.getTime() <= now.getTime())
+    throw new Error('WAIT_INVALID_DATE');
+  return {
+    resumeAt,
+    expiresAt:
+      'resumeDeadlineMinutes' in c && c.resumeDeadlineMinutes
+        ? new Date(resumeAt.getTime() + c.resumeDeadlineMinutes * 60000)
+        : null,
+  };
+}
 export const configSchemas: Record<BlockType, z.ZodTypeAny> = {
   'whatsapp.lead.update': z
     .object({ field: z.enum(['name', 'company', 'email']), value: z.string().trim().min(1).max(200) })
@@ -182,7 +225,7 @@ export const configSchemas: Record<BlockType, z.ZodTypeAny> = {
     })
     .strict(),
   'sdr.assign': z.object({ team: shortText }).strict(),
-  wait: z.object({ minutes: z.number().int().min(1).max(43200) }).strict(),
+  wait: waitConfigSchema,
   'tag.add': z.object({ tag: z.string().trim().min(1).max(60) }).strict(),
   'manager.notify': z.object({ message: z.string().trim().min(1).max(1000) }).strict(),
 };

@@ -47,13 +47,35 @@ export function RunLog({ run, onClose }: { run: UnifiedRun; onClose: () => void 
       <div className="console-note" style={isReal ? { background: '#f5f0ff', borderColor: '#d8b4fe' } : {}}>
         {isReal ? <Zap size={13} color="#7c3aed" /> : <ShieldCheck size={13} />}
         {isReal
-          ? `Execução: ${execution.status}. Consulte cada etapa para verificar os efeitos persistidos.`
+          ? `Execução: ${execution.status === 'SUSPENDED' ? 'Aguardando' : execution.status}. Consulte cada etapa para verificar os efeitos persistidos.`
           : 'Nenhuma ação externa foi enviada. Entradas pessoais protegidas.'}
         <span>
           <Clock3 size={12} />
           {new Date(run.createdAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
         </span>
       </div>
+
+      {isReal &&
+        execution.checkpoints?.map((checkpoint) => (
+          <div className="info-box" key={checkpoint.id}>
+            <Clock3 size={16} />
+            <div>
+              <strong>
+                {checkpoint.status === 'WAITING' ? 'Aguardando' : 'Espera registrada'} ·{' '}
+                {steps.find((s) => s.nodeId === checkpoint.nodeId)?.name ?? checkpoint.nodeId}
+              </strong>
+              <p>Suspensão: {new Date(checkpoint.suspendedAt).toLocaleString('pt-BR')}</p>
+              <p>Previsão de continuar: {new Date(checkpoint.resumeAt).toLocaleString('pt-BR')}</p>
+              {checkpoint.resumedAt && (
+                <p>Retomada: {new Date(checkpoint.resumedAt).toLocaleString('pt-BR')}</p>
+              )}
+              {checkpoint.recoveryError && (
+                <p role="alert">Erro de recuperação: {checkpoint.recoveryError}</p>
+              )}
+            </div>
+          </div>
+        ))}
+      {isReal && execution.errorCode && <p className="validation-errors">{execution.errorCode}</p>}
 
       {isReal && execution.leadSummary && (
         <div

@@ -2,7 +2,13 @@ import { reserveDelivery, failDelivery } from './delivery';
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { leadSchema, validateWorkflow, type Workflow } from '@eimax/workflow-schema';
-import { createProductionEffects, executeWorkflow } from '@eimax/workflow-engine';
+import {
+  createProductionEffects,
+  executeDurableSegment,
+  type ContinuationState,
+} from '@eimax/workflow-engine';
+import { resumeDueExecution } from './resume';
+export { resumeDueExecution } from './resume';
 import {
   openSecrets,
   whatsappAdapter,
@@ -143,7 +149,15 @@ export async function reserveExecution(prisma: PrismaClient, leaseMs = 30000): P
         durationMs: Date.now() - Date.parse(String(previous.startedAt)),
         errorCode: 'LEASE_EXPIRED',
       });
-    if (row.attempt >= row.maxAttempts) {
+    if (row.segmentAttempt >= row.maxAttempts) {
+      await tx.executionCheckpoint.updateMany({
+        where: { executionId: row.id, status: 'READY' },
+        data: {
+          status: 'FAILED',
+          recoveryError: 'ATTEMPTS_EXHAUSTED',
+          revision: { increment: 1 },
+        },
+      });
       await tx.execution.update({
         where: { id: row.id },
         data: {
@@ -162,7 +176,8 @@ export async function reserveExecution(prisma: PrismaClient, leaseMs = 30000): P
       data: {
         status: 'RUNNING',
         attempt: { increment: 1 },
-        startedAt: new Date(),
+        segmentAttempt: { increment: 1 },
+        startedAt: row.startedAt ?? new Date(),
         leaseToken: token,
         leaseUntil: new Date(Date.now() + leaseMs),
         attemptHistory: [
@@ -178,6 +193,7 @@ export async function reserveExecution(prisma: PrismaClient, leaseMs = 30000): P
 // This adapter has database effects only. Network adapters must use a durable outbox and
 // provider idempotency before being enabled here; a DB transaction cannot undo an HTTP send.
 export async function processReservedExecution(prisma: PrismaClient, job: Reservation) {
+  let checkpointWrite = false;
   try {
     return await prisma.$transaction(
       async (tx) => {
@@ -187,7 +203,7 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
         if (!locked.length) return null;
         const execution = await tx.execution.findUniqueOrThrow({
           where: { id: job.id },
-          include: { version: true, lead: true },
+          include: { version: true, lead: true, checkpoints: { where: { status: 'READY' }, take: 1 } },
         });
         if (
           !execution.version ||
@@ -200,6 +216,45 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
         const { _event, ...leadContext } = context as Record<string, Prisma.JsonValue>;
         const sourceEvent = _event as { id?: string; orderKey?: string } | undefined;
         const lead = leadSchema.parse(leadContext);
+        const checkpoint = execution.checkpoints[0];
+        if (checkpoint) {
+          const flow = execution.version.snapshot as unknown as Workflow;
+          const state = checkpoint.state as unknown as ContinuationState;
+          if (
+            checkpoint.versionId !== execution.versionId ||
+            !flow.nodes.some((n) => n.id === checkpoint.nodeId && n.type === 'wait') ||
+            state.nextNodeId !== checkpoint.nextNodeId ||
+            !Array.isArray(state.visited) ||
+            !state.visited.includes(checkpoint.nodeId) ||
+            state.nextNodeId !== (flow.edges.find((e) => e.source === checkpoint.nodeId)?.target ?? null)
+          )
+            throw new Error('INVALID_CHECKPOINT');
+          leadSchema.parse(state.lead);
+          // A READY checkpoint may sit in the queue past its deadline (worker down, backlog).
+          // Recheck under the execution lock so expired continuations never run their actions.
+          const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT (NOW() AT TIME ZONE 'UTC') AS now`;
+          if (checkpoint.expiresAt && checkpoint.expiresAt <= now) {
+            await tx.executionCheckpoint.update({
+              where: { id: checkpoint.id, revision: checkpoint.revision, status: 'READY' },
+              data: { status: 'EXPIRED', recoveryError: 'WAIT_EXPIRED', revision: { increment: 1 } },
+            });
+            return tx.execution.update({
+              where: { id: execution.id },
+              data: {
+                status: 'FAILED',
+                errorCode: 'WAIT_EXPIRED',
+                finishedAt: now,
+                leaseToken: null,
+                leaseUntil: null,
+                attemptHistory: (execution.attemptHistory as Array<Record<string, any>>).map((item) =>
+                  item.attempt === execution.attempt
+                    ? { ...item, status: 'FAILED', finishedAt: now.toISOString(), errorCode: 'WAIT_EXPIRED' }
+                    : item,
+                ),
+              },
+            });
+          }
+        }
         const organizationId = execution.organizationId;
         const leadId = execution.lead.id;
         // Different message events may share a lead; serialize their local mutations as well.
@@ -393,10 +448,11 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
             throw new Error('EMAIL_PROVIDER_NOT_CONFIGURED');
           },
         });
-        const result = await executeWorkflow(
+        const result = await executeDurableSegment(
           execution.version.snapshot as unknown as Workflow,
           lead,
           effects,
+          checkpoint?.state as unknown as ContinuationState | undefined,
         );
         await tx.executionStep.createMany({
           data: result.steps.map((step) => ({
@@ -411,11 +467,44 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
             message: step.message,
           })),
         });
+        if (checkpoint)
+          await tx.executionCheckpoint.update({
+            where: { id: checkpoint.id, revision: checkpoint.revision, status: 'READY' },
+            data: {
+              status: 'CONSUMED',
+              consumedAt: new Date(),
+              revision: { increment: 1 },
+            },
+          });
+        if (result.suspension) {
+          checkpointWrite = true;
+          const s = result.suspension;
+          await tx.executionCheckpoint.create({
+            data: {
+              executionId: execution.id,
+              organizationId,
+              workflowId: execution.workflowId,
+              versionId: execution.versionId!,
+              nodeId: s.nodeId,
+              nextNodeId: s.nextNodeId,
+              state: JSON.parse(JSON.stringify(s.state)),
+              resumeAt: s.resumeAt,
+              expiresAt: s.expiresAt,
+            },
+          });
+          checkpointWrite = false;
+        }
+        const status =
+          result.status === 'suspended' ? 'SUSPENDED' : result.status === 'success' ? 'COMPLETED' : 'FAILED';
+        const persistedSteps = await tx.executionStep.findMany({
+          where: { executionId: execution.id },
+          select: { status: true },
+        });
         return tx.execution.update({
           where: { id: execution.id },
           data: {
-            status: result.status === 'success' ? 'COMPLETED' : 'FAILED',
-            finishedAt: new Date(),
+            status,
+            finishedAt: result.status === 'suspended' ? null : new Date(),
             durationMs: Date.now() - execution.startedAt!.getTime(),
             leaseToken: null,
             leaseUntil: null,
@@ -427,17 +516,17 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
               item.attempt === execution.attempt
                 ? {
                     ...item,
-                    status: result.status === 'success' ? 'COMPLETED' : 'FAILED',
+                    status,
                     finishedAt: new Date().toISOString(),
-                    durationMs: Date.now() - execution.startedAt!.getTime(),
+                    durationMs: Date.now() - Date.parse(String(item.startedAt)),
                     errorCode: result.status === 'failed' ? 'ACTION_FAILED' : null,
                   }
                 : item,
             ),
             result: {
               status: result.status,
-              totalSteps: result.steps.length,
-              executedSteps: result.steps.filter((s) => s.status === 'success').length,
+              totalSteps: persistedSteps.length,
+              executedSteps: persistedSteps.filter((s) => s.status === 'success').length,
             },
           },
         });
@@ -451,33 +540,55 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
       ['P2034', 'P2028', 'P1001', 'P1002'].includes(error.code);
     const current = await prisma.execution.findUnique({ where: { id: job.id } });
     if (current?.leaseToken !== job.leaseToken) return null;
-    const retry = transient && current.attempt < current.maxAttempts;
-    return prisma.execution.update({
-      where: { id: job.id, leaseToken: job.leaseToken },
-      data: {
-        status: retry ? 'QUEUED' : 'FAILED',
-        errorCode: transient ? 'DATABASE_TRANSIENT_FAILURE' : 'EXECUTION_CONTEXT_FAILURE',
-        availableAt: new Date(Date.now() + 1000 * 2 ** current.attempt),
-        finishedAt: retry ? null : new Date(),
-        leaseToken: null,
-        leaseUntil: null,
-        durationMs: current.startedAt ? Date.now() - current.startedAt.getTime() : null,
-        attemptHistory: (current.attemptHistory as Array<Record<string, any>>).map((item) =>
-          item.attempt === current.attempt
-            ? {
-                ...item,
-                status: retry ? 'RETRY' : 'FAILED',
-                finishedAt: new Date().toISOString(),
-                errorCode: transient ? 'DATABASE_TRANSIENT_FAILURE' : 'EXECUTION_CONTEXT_FAILURE',
-              }
-            : item,
-        ),
-      },
+    const retry = transient && current.segmentAttempt < current.maxAttempts;
+    const errorCode = checkpointWrite
+      ? 'CHECKPOINT_PERSISTENCE_FAILURE'
+      : transient
+        ? 'DATABASE_TRANSIENT_FAILURE'
+        : 'EXECUTION_CONTEXT_FAILURE';
+    return prisma.$transaction(async (tx) => {
+      // Fencing also applies to recovery after a rolled-back segment.
+      const locked = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM "Execution" WHERE id=${job.id} AND "leaseToken"=${job.leaseToken} AND status='RUNNING' FOR UPDATE`;
+      if (!locked.length) return null;
+      await tx.executionCheckpoint.updateMany({
+        where: { executionId: job.id, status: 'READY' },
+        data: {
+          recoveryError: errorCode,
+          ...(retry ? {} : { status: 'FAILED' }),
+          revision: { increment: 1 },
+        },
+      });
+      return tx.execution.update({
+        where: { id: job.id, leaseToken: job.leaseToken },
+        data: {
+          status: retry ? 'QUEUED' : 'FAILED',
+          errorCode,
+          // Lifetime attempts grow across WAIT segments; back off per segment and cap at 5 min.
+          availableAt: new Date(Date.now() + Math.min(300000, 1000 * 2 ** current.segmentAttempt)),
+          finishedAt: retry ? null : new Date(),
+          leaseToken: null,
+          leaseUntil: null,
+          durationMs: current.startedAt ? Date.now() - current.startedAt.getTime() : null,
+          attemptHistory: (current.attemptHistory as Array<Record<string, any>>).map((item) =>
+            item.attempt === current.attempt
+              ? {
+                  ...item,
+                  status: retry ? 'RETRY' : 'FAILED',
+                  finishedAt: new Date().toISOString(),
+                  errorCode,
+                }
+              : item,
+          ),
+        },
+      });
     });
   }
 }
 
 export async function runNextExecution(prisma: PrismaClient) {
+  await resumeDueExecution(prisma);
   const job = await reserveExecution(prisma);
   return job ? processReservedExecution(prisma, job) : null;
 }
@@ -512,7 +623,7 @@ export async function validateConnections(
       !connection ||
       (!inboundTrigger && connection.state !== 'CONNECTED') ||
       !connection.enabled ||
-      !connection.credentials
+      (!connection.credentials && connection.provider !== 'MOCK')
     )
       throw new Error('WHATSAPP_CONNECTION_UNAVAILABLE');
     if (node.type === 'whatsapp.conversation.started')
@@ -548,9 +659,12 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient, transport?: Tra
       include: { connection: true, lead: true },
     });
     const connection = notification.connection;
+    // The sandbox provider never leaves the process, so it needs no external opt-in or secrets.
+    const sandbox = connection?.provider === 'MOCK';
     if (
-      process.env.WHATSAPP_EXTERNAL_ENABLED !== 'true' ||
-      !connection?.credentials ||
+      (!sandbox && process.env.WHATSAPP_EXTERNAL_ENABLED !== 'true') ||
+      !connection ||
+      (!sandbox && !connection.credentials) ||
       !connection.enabled ||
       connection.state !== 'CONNECTED' ||
       connection.organizationId !== notification.organizationId
@@ -582,7 +696,7 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient, transport?: Tra
     const adapter = whatsappAdapter(
       connection.provider,
       connection.settings as Settings,
-      openSecrets(connection.credentials),
+      connection.credentials ? openSecrets(connection.credentials) : {},
       transport,
     );
     // Recheck the session at dispatch time, not only at publication time.

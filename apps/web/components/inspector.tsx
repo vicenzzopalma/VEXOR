@@ -348,17 +348,86 @@ export function Inspector({
             </label>
           )}
           {node.type === 'wait' && (
-            <label className="field">
-              Tempo de espera em minutos
-              <input
-                type="number"
-                min={1}
-                max={43200}
-                value={Number(c.minutes ?? 0)}
-                onChange={(e) => field('minutes', Number(e.target.value))}
-              />
-              <span className="field-helper">Até 30 dias. Na simulação, a espera é instantânea.</span>
-            </label>
+            <>
+              <label className="field">
+                Tipo de espera
+                <select
+                  value={String(c.mode ?? 'duration')}
+                  onChange={(e) =>
+                    onUpdate({
+                      ...node,
+                      config:
+                        e.target.value === 'until'
+                          ? { mode: 'until', at: '' }
+                          : { mode: 'duration', amount: 5, unit: 'minutes' },
+                    })
+                  }
+                >
+                  <option value="duration">Por intervalo</option>
+                  <option value="until">Até uma data e horário</option>
+                </select>
+              </label>
+              {c.mode === 'until' ? (
+                <label className="field">
+                  Data e horário com fuso
+                  <input
+                    type="text"
+                    placeholder="2026-12-01T09:00:00-03:00"
+                    value={String(c.at ?? '')}
+                    onChange={(e) => field('at', e.target.value)}
+                  />
+                  <span className="field-helper">
+                    Use ISO 8601 com fuso explícito. Exemplo: -03:00 para Brasília.
+                  </span>
+                </label>
+              ) : (
+                <>
+                  <label className="field">
+                    Tempo de espera
+                    <input
+                      type="number"
+                      min={1}
+                      value={Number(c.amount ?? c.minutes ?? 5)}
+                      onChange={(e) =>
+                        onUpdate({
+                          ...node,
+                          config: {
+                            mode: 'duration',
+                            amount: Number(e.target.value),
+                            unit: c.unit ?? 'minutes',
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="field">
+                    Unidade
+                    <select
+                      value={String(c.unit ?? 'minutes')}
+                      onChange={(e) =>
+                        onUpdate({
+                          ...node,
+                          config: {
+                            mode: 'duration',
+                            amount: c.amount ?? c.minutes ?? 5,
+                            unit: e.target.value,
+                          },
+                        })
+                      }
+                    >
+                      <option value="seconds">Segundos</option>
+                      <option value="minutes">Minutos</option>
+                      <option value="hours">Horas</option>
+                      <option value="days">Dias</option>
+                    </select>
+                  </label>
+                </>
+              )}
+              <p className="field-helper">
+                Na execução real, o processo fica aguardando e continua automaticamente. Na simulação, a
+                espera é instantânea.
+              </p>
+            </>
           )}
           {node.type === 'tag.add' && (
             <label className="field">

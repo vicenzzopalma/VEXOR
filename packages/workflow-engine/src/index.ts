@@ -3,6 +3,9 @@ import {
   leadSchema,
   validateWorkflow,
   triggerTypes,
+  waitSchedule,
+  stepVariables,
+  templateParts,
   type Lead,
   type StepLog,
   type Workflow,
@@ -17,6 +20,7 @@ const actionErrors: Record<string, string> = {
   WHATSAPP_CONSENT_REQUIRED: 'Confirme o telefone e o consentimento do destinatário antes de enviar.',
   WHATSAPP_TEMPLATE_REQUIRED: 'A janela de atendimento terminou. Use um template aprovado.',
   WAIT_NOT_CONFIGURED: 'Espera durável ainda não disponível para execução real.',
+  WAIT_INVALID_DATE: 'A data da espera deve ser válida e estar no futuro.',
 };
 
 export function evaluateCondition(config: Record<string, unknown>, lead: Lead): boolean {
@@ -99,8 +103,8 @@ export function simulateAction(
       return { output: { simulated: true, team: c.team }, message: `Atribuição simulada para ${c.team}.` };
     case 'wait':
       return {
-        output: { simulated: true, minutes: c.minutes },
-        message: `Espera de ${c.minutes} minuto(s) simulada, sem atraso real.`,
+        output: { simulated: true, ...('minutes' in c ? { minutes: c.minutes } : { configuration: c }) },
+        message: 'Espera simulada, sem atraso real.',
       };
     case 'tag.add':
       return { output: { simulated: true, tag: c.tag }, message: `Etiqueta “${c.tag}” simulada.` };
@@ -274,15 +278,18 @@ export async function interpretWorkflow(
   workflow: Workflow,
   rawLead: Lead,
   effects: EffectAdapter,
+  durable?: { state?: ContinuationState; suspended?: Suspension },
 ): Promise<StepLog[]> {
   const errors = validateWorkflow(workflow);
   if (errors.length) throw new Error(errors.map((e) => e.message).join('\n'));
-  const lead = leadSchema.parse(rawLead);
+  const lead = leadSchema.parse(durable?.state?.lead ?? rawLead);
   const steps: StepLog[] = [];
-  const visited = new Set<string>();
-  const outputs: Record<string, unknown> = Object.create(null);
-  let assignedTo: string | undefined;
-  let id: string | undefined = workflow.nodes.find((n) => triggerTypes.includes(n.type))?.id;
+  const visited = new Set<string>(durable?.state?.visited ?? []);
+  const outputs: Record<string, unknown> = Object.assign(Object.create(null), durable?.state?.outputs ?? {});
+  let assignedTo: string | undefined = durable?.state?.assignedTo;
+  let id: string | undefined = durable?.state
+    ? (durable.state.nextNodeId ?? undefined)
+    : workflow.nodes.find((n) => triggerTypes.includes(n.type))?.id;
   const safeInput = {
     company: lead.company,
     budget: lead.budget,
@@ -297,6 +304,63 @@ export async function interpretWorkflow(
     const node = workflow.nodes.find((n) => n.id === id)!;
     const start = performance.now();
     try {
+      if (durable && node.type === 'wait') {
+        const schedule = waitSchedule(node.config);
+        const nextNodeId = workflow.edges.find((e) => e.source === node.id)?.target ?? null;
+        const needed = new Set(
+          workflow.nodes
+            .filter((n) => !visited.has(n.id))
+            .flatMap((n) =>
+              Object.values(n.config)
+                .filter((value): value is string => typeof value === 'string')
+                .flatMap((value) =>
+                  templateParts(value)
+                    .filter((part) => part.kind === 'variable')
+                    .map((part) => part.value),
+                ),
+            ),
+        );
+        const continuationLead = { ...lead };
+        if (!needed.has('lead.message')) delete continuationLead.message;
+        if (!needed.has('lead.phone')) delete continuationLead.phone;
+        const safeOutputs = Object.fromEntries(
+          Object.entries(outputs).map(([key, value]) => {
+            const type = workflow.nodes.find((n) => n.id === key)?.type ?? '';
+            return [
+              key,
+              Object.fromEntries(
+                Object.entries(value as Record<string, unknown>).filter(
+                  ([field]) =>
+                    Object.hasOwn(stepVariables[type] ?? {}, field) && needed.has(`steps.${key}.${field}`),
+                ),
+              ),
+            ];
+          }),
+        );
+        durable.suspended = {
+          ...schedule,
+          nodeId: node.id,
+          nextNodeId,
+          state: {
+            lead: continuationLead,
+            outputs: safeOutputs,
+            visited: [...visited],
+            nextNodeId,
+            ...(assignedTo ? { assignedTo } : {}),
+          },
+        };
+        steps.push({
+          nodeId: node.id,
+          name: node.name,
+          type: node.type,
+          status: 'success',
+          input: {},
+          output: { resumeAt: schedule.resumeAt.toISOString() },
+          durationMs: 0,
+          message: 'Espera persistida; aguardando retomada automática.',
+        });
+        return steps;
+      }
       const resolvedNode = { ...node, config: { ...node.config } };
       let dynamic = false;
       if (!['condition', 'sdr.assign', ...triggerTypes].includes(node.type)) {
@@ -377,4 +441,38 @@ export async function executeWorkflow(
   const steps = await interpretWorkflow(workflow, lead, adapter);
   const status = steps.some((s) => s.status === 'failed') ? 'failed' : 'success';
   return { status, steps };
+}
+
+export interface ContinuationState {
+  lead: Lead;
+  outputs: Record<string, unknown>;
+  visited: string[];
+  nextNodeId: string | null;
+  assignedTo?: string;
+}
+export interface Suspension {
+  nodeId: string;
+  nextNodeId: string | null;
+  resumeAt: Date;
+  expiresAt: Date | null;
+  state: ContinuationState;
+}
+
+export async function executeDurableSegment(
+  workflow: Workflow,
+  lead: Lead,
+  effects: EffectAdapter,
+  state?: ContinuationState,
+) {
+  const durable: { state?: ContinuationState; suspended?: Suspension } = { state };
+  const steps = await interpretWorkflow(workflow, lead, effects, durable);
+  return {
+    status: durable.suspended
+      ? ('suspended' as const)
+      : steps.some((s) => s.status === 'failed')
+        ? ('failed' as const)
+        : ('success' as const),
+    steps,
+    suspension: durable.suspended,
+  };
 }

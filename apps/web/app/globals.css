@@ -20,6 +20,19 @@
   --line: #eae8ef;
   --soft: #f1edfc;
 }
+.durable-editor-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--ink);
+  font-size: 12px;
+  max-height: 120px;
+  overflow: auto;
+}
 .variable-editor {
   display: flex;
   flex-wrap: wrap;
@@ -2510,4 +2523,45 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+/* WhatsApp: lista de contas e pareamento */
+.connection-card {
+  align-items: flex-start;
+}
+.connection-info {
+  flex: 1;
+  min-width: 0;
+}
+.connection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.connection-notice {
+  border: 1px solid var(--line);
+  background: var(--soft);
+  color: var(--ink);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+.pairing-code {
+  display: block;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--ink);
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 680px) {
+  .connection-actions {
+    justify-content: flex-start;
+  }
 }

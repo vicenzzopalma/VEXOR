@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-10-20T20:22:41.421Z",
+  "generatedAt": "2026-10-26T20:00:08.238Z",
   "evidenceType": "local-postgresql-test",
   "result": {
-    "executionId": "425111d5-c408-45ba-989a-639b58c301f8",
+    "executionId": "b2d78bc1-4915-4633-b78b-cac695a46f44",
     "status": "COMPLETED",
     "attempt": 2,
     "attemptHistory": [
@@ -10,17 +10,17 @@
         "status": "ABANDONED",
         "attempt": 1,
         "errorCode": "LEASE_EXPIRED",
-        "startedAt": "2026-10-20T20:22:26.271Z",
-        "durationMs": 15119,
-        "finishedAt": "2026-10-20T20:22:41.390Z"
+        "startedAt": "2026-10-26T19:59:53.067Z",
+        "durationMs": 15140,
+        "finishedAt": "2026-10-26T20:00:08.207Z"
       },
       {
         "status": "COMPLETED",
         "attempt": 2,
         "errorCode": null,
-        "startedAt": "2026-10-20T20:22:41.390Z",
-        "durationMs": 25,
-        "finishedAt": "2026-10-20T20:22:41.414Z"
+        "startedAt": "2026-10-26T20:00:08.207Z",
+        "durationMs": 24,
+        "finishedAt": "2026-10-26T20:00:08.231Z"
       }
     ],
     "steps": 2,

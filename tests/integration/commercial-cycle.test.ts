@@ -115,6 +115,7 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     expect(persistedLead!.budget).toBe(15000);
     expect(persistedLead!.score).toBe(92);
     expect(persistedLead!.status).toBe('QUALIFIED');
+    expect(persistedLead!.revision).toBeGreaterThan(1);
 
     // 3. Comprovação: SDR real atribuído
     expect(persistedLead!.assignedMembershipId).toBeTruthy();
@@ -253,12 +254,14 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     expect(sample).toHaveProperty('id');
     expect(sample).toHaveProperty('name');
     expect(sample).toHaveProperty('status');
+    expect(sample.revision).toBeGreaterThan(0);
     expect(sample).toHaveProperty('assignedMembership');
 
     // 2. Detalhe do lead
     const detailRes = await request(`/leads/${sample.id}`, 'owner');
     expect(detailRes.status).toBe(200);
     expect(detailRes.data.id).toBe(sample.id);
+    expect(detailRes.data.revision).toBeGreaterThanOrEqual(sample.revision);
     expect(Array.isArray(detailRes.data.executions)).toBe(true);
     expect(Array.isArray(detailRes.data.notifications)).toBe(true);
 
@@ -291,21 +294,25 @@ describe('Ciclo Comercial Real Completo - VEXOR', () => {
     const list = await request('/leads', 'owner');
     const targetLead = list.data[0];
     const foreignAssignment = await request(`/leads/${targetLead.id}`, 'owner', 'PATCH', {
+      expectedRevision: targetLead.revision,
       assignedMembershipId: 'dev-other',
     });
     expect(foreignAssignment.status).toBe(400);
 
     const patchRes = await request(`/leads/${targetLead.id}`, 'owner', 'PATCH', {
+      expectedRevision: targetLead.revision,
       status: 'CONVERTED',
       tags: ['Cliente Fechado', 'Contrato Assinado'],
     });
 
     expect(patchRes.status).toBe(200);
     expect(patchRes.data.status).toBe('CONVERTED');
+    expect(patchRes.data.revision).toBe(targetLead.revision + 1);
     expect(patchRes.data.tags).toContain('Contrato Assinado');
 
     // Rejeita acesso de outra empresa ao patch
     const patchOther = await request(`/leads/${targetLead.id}`, 'other', 'PATCH', {
+      expectedRevision: patchRes.data.revision,
       status: 'DISQUALIFIED',
     });
     expect(patchOther.status).toBe(404);

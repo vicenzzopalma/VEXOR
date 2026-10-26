@@ -40,12 +40,18 @@ test('WhatsApp mantém configuração necessária e não oferece conexão fictí
   await page.goto('/integracoes/whatsapp');
   await page.getByRole('button', { name: 'Adicionar conta', exact: true }).click();
   await page.getByRole('textbox', { name: 'Nome da conta', exact: true }).fill(name);
+  await page.getByRole('combobox', { name: 'Provedor', exact: true }).selectOption('META');
   await page.getByRole('button', { name: 'Salvar conta', exact: true }).click();
   await expect(page.getByRole('dialog')).toBeHidden();
   const account = page.locator('.run-card').filter({ hasText: name });
   await expect(account).toContainText('Configuração necessária');
   await expect(account.getByRole('button', { name: 'Conectar', exact: true })).toBeDisabled();
+  await expect(account.getByRole('button', { name: 'Desconectar', exact: true })).toHaveCount(0);
   await expect(page.locator('.whatsapp-qr')).toHaveCount(0);
+  await account.getByRole('button', { name: 'Remover da lista', exact: true }).click();
+  await expect(account).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.run-card').filter({ hasText: name })).toHaveCount(0);
 });
 
 test('lead real: fila, histórico, atribuição explícita e filtros comerciais', async ({ page }) => {

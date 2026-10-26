@@ -189,6 +189,8 @@ describe('Fase 5.2 — Integridade Histórica e Preservação de Versões', () =
         const f = await createFixtures(tx);
 
         // 4a. TRUNCATE direto na tabela WorkflowVersion (com CASCADE para testar o gatilho)
+        // Flush phase 6A deferred execution checks so this case reaches the historical guard itself.
+        await tx.$executeRawUnsafe('SET CONSTRAINTS ALL IMMEDIATE');
         await tx.$executeRawUnsafe('SAVEPOINT sp_trunc_v');
         try {
           await tx.$executeRawUnsafe(`TRUNCATE TABLE "WorkflowVersion" CASCADE`);
@@ -325,7 +327,7 @@ describe('Fase 5.2 — Integridade Histórica e Preservação de Versões', () =
     expect(crossTenantBlocked).toBe(true);
   });
 
-  it('7. Replay completo de migrações aplica 13 migrações sem diff em banco isolado', async () => {
+  it('7. Replay completo de migrações aplica o schema atual sem diff em banco isolado', async () => {
     const output = await new Promise<string>((resolve, reject) => {
       const child = spawn(process.execPath, ['scripts/verify-migration-replay.mjs', '--label=phase52'], {
         env: process.env,
@@ -344,7 +346,7 @@ describe('Fase 5.2 — Integridade Histórica e Preservação de Versões', () =
     const parsed = JSON.parse(output.trim());
     expect(parsed).toMatchObject({
       database: 'eimax_phase52_migration_replay',
-      migrations: 13,
+      migrations: 16,
       schemaDiffEmpty: true,
       applicationDatabaseReset: false,
     });

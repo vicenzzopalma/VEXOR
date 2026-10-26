@@ -61,7 +61,7 @@ import {
   type Workflow as WorkflowModel,
   type WorkflowNode,
 } from '@eimax/workflow-schema';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, type ExecutionRecord } from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { blockIcons } from './icons';
 import { WorkflowBlock, type FlowNode } from './workflow-node';
@@ -107,6 +107,29 @@ function EditorWorkspace({ id }: { id: string }) {
   const [lead, setLead] = useState<Lead>({ ...sampleLead });
   const [run, setRun] = useState<SimulationResult>();
   const [showRun, setShowRun] = useState(false);
+  const [realRuns, setRealRuns] = useState<ExecutionRecord[]>([]);
+  const [realRunId, setRealRunId] = useState<string>();
+  const [realRunError, setRealRunError] = useState('');
+  useEffect(() => {
+    let active = true;
+    const load = () =>
+      api<ExecutionRecord[]>(`/workflows/${id}/executions`)
+        .then((rows) => {
+          if (active) {
+            setRealRuns(rows);
+            setRealRunError('');
+          }
+        })
+        .catch((error) => {
+          if (active) setRealRunError(error.message);
+        });
+    void load();
+    const timer = setInterval(load, 2000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [id]);
   const [execution, setExecution] = useState<Record<string, string>>({});
   const [zoom, setZoom] = useState(100);
   const [hand, setHand] = useState(false);
@@ -144,15 +167,30 @@ function EditorWorkspace({ id }: { id: string }) {
         anchor.origin !== location.origin ||
         event.ctrlKey ||
         event.metaKey ||
+        event.shiftKey ||
+        event.altKey ||
+        event.button !== 0 ||
+        anchor.hasAttribute('download') ||
+        (anchor.target && anchor.target !== '_self') ||
         state.saveStatus === 'saved'
       )
         return;
       event.preventDefault();
       event.stopPropagation();
+      const destination = `${anchor.pathname}${anchor.search}${anchor.hash}`;
       state
         .save()
-        .then(() => router.push(anchor.pathname))
-        .catch((error) => state.setError(error.message));
+        .then(() => router.push(destination))
+        .catch((error) => {
+          state.setError(error.message);
+          // A failed save (conflict, validation, network) must never trap the user in the editor.
+          if (
+            window.confirm(
+              `Não foi possível salvar: ${error.message}\n\nSair mesmo assim e descartar as alterações não salvas?`,
+            )
+          )
+            router.push(destination);
+        });
     };
     document.addEventListener('click', navigate, true);
     return () => document.removeEventListener('click', navigate, true);
@@ -234,6 +272,7 @@ function EditorWorkspace({ id }: { id: string }) {
     const key = (e: KeyboardEvent) => {
       if (
         modal ||
+        document.querySelector('[role="dialog"][aria-modal="true"]') ||
         readOnly ||
         (e.target as HTMLElement).closest('input,textarea,select,[contenteditable="true"]')
       )
@@ -474,7 +513,7 @@ function EditorWorkspace({ id }: { id: string }) {
     const url = URL.createObjectURL(new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'eimax-rascunho.json';
+    a.download = 'vexor-rascunho.json';
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -902,6 +941,35 @@ function EditorWorkspace({ id }: { id: string }) {
               )}
             </ReactFlow>
           </div>
+          {!!realRuns.length && (
+            <div className="durable-editor-status">
+              <strong>Execuções reais</strong>
+              {realRuns.slice(0, 3).map((row) => (
+                <button className="btn" key={row.id} onClick={() => setRealRunId(row.id)}>
+                  {row.status === 'SUSPENDED'
+                    ? 'Aguardando'
+                    : row.status === 'COMPLETED'
+                      ? 'Concluída'
+                      : row.status}{' '}
+                  · {row.leadSummary?.name}
+                  {row.status === 'SUSPENDED' &&
+                    row.checkpoints?.at(-1) &&
+                    ` · ${new Date(row.checkpoints.at(-1)!.resumeAt).toLocaleString('pt-BR')}`}
+                </button>
+              ))}
+            </div>
+          )}
+          {realRunError && (
+            <p role="status" className="field-helper">
+              Histórico real: {realRunError}
+            </p>
+          )}
+          {realRunId && realRuns.find((r) => r.id === realRunId) && (
+            <RunLog
+              run={{ ...realRuns.find((r) => r.id === realRunId)!, mode: 'real' }}
+              onClose={() => setRealRunId(undefined)}
+            />
+          )}
           {run && showRun && <RunLog run={run} onClose={() => setShowRun(false)} />}
         </div>
         {inspector && (

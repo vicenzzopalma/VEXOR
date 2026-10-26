@@ -1,0 +1,98 @@
+{
+  "generatedAt": "2026-10-21T16:53:59.264Z",
+  "evidenceType": "real-worker-restart-local-postgresql",
+  "externalCalls": false,
+  "executionId": "3d1d448e-e856-4f46-ab23-6eb941329b7e",
+  "workflowId": "bb367f82-8b90-47f1-a459-27592efaf132",
+  "versionId": "b06bdcc8-9b96-4272-ac1b-b282b76f44e9",
+  "newerVersionId": "9854e9b8-c7ae-4dd5-b988-0ccfb203c3f1",
+  "suspendedAt": "2026-10-21T16:53:28.712Z",
+  "scheduledResumeAt": "2026-10-21T16:53:58.705Z",
+  "resumedAt": "2026-10-21T16:53:59.096Z",
+  "completedAt": "2026-10-21T16:53:59.181Z",
+  "restart": {
+    "previousPid": 17656,
+    "newPid": 13072,
+    "restartedAt": "2026-10-21T16:53:29.400Z",
+    "interruptedDuringWait": true
+  },
+  "workerReleased": {
+    "leaseToken": null,
+    "leaseUntil": null,
+    "controlExecutionId": "d7a4efb8-1bf7-443e-888f-b73360e311b8",
+    "controlCompletedAt": "2026-10-21T16:53:29.308Z",
+    "originalStillSuspended": true
+  },
+  "originalTagStepId": "50376298-1972-450c-aac5-8af5f4d92d5b",
+  "tagApplications": 1,
+  "finalLeadStatus": "QUALIFIED",
+  "originalVersionPreserved": true,
+  "archivedDuringWait": true,
+  "notifications": [
+    {
+      "id": "438ab93d-7800-41ff-81bf-2d866d9db6f0",
+      "channel": "MANAGER_NOTIFICATION",
+      "status": "AVAILABLE"
+    }
+  ],
+  "steps": [
+    {
+      "id": "4b488959-0273-4704-877f-7a7750fafaa9",
+      "nodeId": "n0",
+      "nodeType": "lead.created",
+      "name": "Lead recebido",
+      "status": "success",
+      "createdAt": "2026-10-21T16:53:28.708Z"
+    },
+    {
+      "id": "50376298-1972-450c-aac5-8af5f4d92d5b",
+      "nodeId": "n1",
+      "nodeType": "tag.add",
+      "name": "Aplicar etiqueta",
+      "status": "success",
+      "createdAt": "2026-10-21T16:53:28.708Z"
+    },
+    {
+      "id": "c0848e63-7a4c-438e-a124-b6c5a586451d",
+      "nodeId": "n2",
+      "nodeType": "wait",
+      "name": "Esperar",
+      "status": "success",
+      "createdAt": "2026-10-21T16:53:28.708Z"
+    },
+    {
+      "id": "a7b59fbd-a9e6-4155-abb4-f827e284c145",
+      "nodeId": "n3",
+      "nodeType": "sdr.assign",
+      "name": "Atualizar lead",
+      "status": "success",
+      "createdAt": "2026-10-21T16:53:59.174Z"
+    },
+    {
+      "id": "a2090afa-583b-41eb-aac6-9dc3c482bcae",
+      "nodeId": "n4",
+      "nodeType": "manager.notify",
+      "name": "Registrar conclusão",
+      "status": "success",
+      "createdAt": "2026-10-21T16:53:59.174Z"
+    }
+  ],
+  "attemptHistory": [
+    {
+      "status": "SUSPENDED",
+      "attempt": 1,
+      "errorCode": null,
+      "startedAt": "2026-10-21T16:53:28.667Z",
+      "durationMs": 49,
+      "finishedAt": "2026-10-21T16:53:28.716Z"
+    },
+    {
+      "status": "COMPLETED",
+      "attempt": 2,
+      "errorCode": null,
+      "startedAt": "2026-10-21T16:53:59.125Z",
+      "durationMs": 56,
+      "finishedAt": "2026-10-21T16:53:59.181Z"
+    }
+  ]
+}

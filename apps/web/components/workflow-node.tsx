@@ -23,7 +23,9 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
         : node.type === 'tag.add'
           ? String(c.tag || 'Defina uma etiqueta')
           : node.type === 'wait'
-            ? `${c.minutes ?? '?'} minutos`
+            ? c.mode === 'until'
+              ? `Até ${String(c.at || 'defina uma data')}`
+              : `${c.amount ?? c.minutes ?? '?'} ${{ seconds: 'segundos', minutes: 'minutos', hours: 'horas', days: 'dias' }[String(c.unit ?? 'minutes')] ?? 'minutos'}`
             : node.type === 'email.send'
               ? String(c.subject || 'Escreva um assunto')
               : node.type === 'manager.notify'

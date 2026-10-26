@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -15,7 +15,7 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { api, type Run, type ExecutionRecord, type LeadRecord } from '@/lib/api';
+import { api, ApiError, type Run, type ExecutionRecord, type LeadRecord } from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { RunLog } from './run-log';
 
@@ -281,15 +281,40 @@ export function RunList() {
   const [selected, setSelected] = useState<any>();
 
   useEffect(() => {
-    if (tab === 'real') {
-      api<ExecutionRecord[]>('/executions')
-        .then(setRealRuns)
-        .catch((e) => setError(e.message));
-    } else {
-      api<Run[]>('/simulations')
-        .then(setSimRuns)
-        .catch((e) => setError(e.message));
-    }
+    let active = true;
+    let pending = false;
+    setError('');
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      try {
+        if (tab === 'real') {
+          const rows = await api<ExecutionRecord[]>('/executions');
+          if (!active) return;
+          setRealRuns(rows);
+          setSelected((current: any) =>
+            current?.mode === 'real'
+              ? { ...(rows.find((r) => r.id === current.id) ?? current), mode: 'real' }
+              : current,
+          );
+        } else {
+          const rows = await api<Run[]>('/simulations');
+          if (!active) return;
+          setSimRuns(rows);
+        }
+        setError('');
+      } catch (e) {
+        if (active) setError((e as Error).message);
+      } finally {
+        pending = false;
+      }
+    };
+    void refresh();
+    const timer = tab === 'real' ? setInterval(() => void refresh(), 2000) : undefined;
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, [tab]);
 
   const loading = tab === 'real' ? !realRuns && !error : !simRuns && !error;
@@ -365,7 +390,11 @@ export function RunList() {
                   className="success-pill"
                   style={row.status === 'COMPLETED' ? { background: '#dcfce7', color: '#166534' } : {}}
                 >
-                  {row.status === 'COMPLETED' ? 'Concluída' : row.status}
+                  {row.status === 'COMPLETED'
+                    ? 'Concluída'
+                    : row.status === 'SUSPENDED'
+                      ? 'Aguardando'
+                      : row.status}
                 </span>
                 <Button onClick={() => setSelected({ ...row, mode: 'real' })}>
                   Consultar resultado <ArrowRight size={12} />
@@ -433,6 +462,16 @@ export function RunList() {
   );
 }
 
+function leadChanges(lead: LeadRecord) {
+  return JSON.stringify({
+    status: lead.status,
+    tags: lead.tags.filter(Boolean),
+    assignedMembershipId: lead.assignedMembership?.id ?? null,
+    whatsappConsent: lead.whatsappConsent ?? false,
+    phone: lead.phone ?? '',
+  });
+}
+
 export function LeadList() {
   const [leads, setLeads] = useState<LeadRecord[]>();
   const [error, setError] = useState('');
@@ -444,6 +483,32 @@ export function LeadList() {
   const [canEdit, setCanEdit] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedLead, setSelectedLead] = useState<LeadRecord>();
+  const [openingLead, setOpeningLead] = useState<LeadRecord>();
+  const [savedChanges, setSavedChanges] = useState('');
+  const [leadConflict, setLeadConflict] = useState(false);
+  const leadRequest = useRef(0);
+  const savingRef = useRef(false);
+  const dirty = !!selectedLead && leadChanges(selectedLead) !== savedChanges;
+
+  useEffect(
+    () => () => {
+      leadRequest.current += 1;
+    },
+    [],
+  );
+
+  function closeLead() {
+    if (savingRef.current) return;
+    if (
+      dirty &&
+      !window.confirm('Descartar as alterações não salvas deste lead? Essa ação não pode ser desfeita.')
+    )
+      return;
+    leadRequest.current += 1;
+    setOpeningLead(undefined);
+    setSelectedLead(undefined);
+    setLeadConflict(false);
+  }
 
   useEffect(() => {
     api<typeof members>('/memberships')
@@ -458,20 +523,62 @@ export function LeadList() {
   }, []);
 
   async function openLead(lead: LeadRecord) {
+    if (savingRef.current) return;
+    if (
+      dirty &&
+      !window.confirm('Descartar as alterações não salvas deste lead? Essa ação não pode ser desfeita.')
+    )
+      return;
+    const request = ++leadRequest.current;
+    setOpeningLead(lead);
+    setSelectedLead(undefined);
+    setLeadConflict(false);
+    setError('');
     try {
-      setSelectedLead(await api<LeadRecord>(`/leads/${lead.id}`));
+      const detail = await api<LeadRecord>(`/leads/${lead.id}`);
+      if (request !== leadRequest.current) return;
+      setSelectedLead(detail);
+      setSavedChanges(leadChanges(detail));
     } catch (e) {
-      setError((e as Error).message);
+      if (request === leadRequest.current) setError((e as Error).message);
+    } finally {
+      if (request === leadRequest.current) setOpeningLead(undefined);
+    }
+  }
+  async function reloadLead() {
+    if (!selectedLead || savingRef.current || openingLead) return;
+    if (
+      dirty &&
+      !window.confirm('Descartar as alterações não salvas deste lead e recarregar os dados atuais?')
+    )
+      return;
+    const request = ++leadRequest.current;
+    setOpeningLead(selectedLead);
+    try {
+      const detail = await api<LeadRecord>(`/leads/${selectedLead.id}`);
+      if (request !== leadRequest.current) return;
+      setSelectedLead(detail);
+      setSavedChanges(leadChanges(detail));
+      setLeads((rows) => rows?.map((row) => (row.id === detail.id ? { ...row, ...detail } : row)));
+      setLeadConflict(false);
+      setError('');
+    } catch (e) {
+      if (request === leadRequest.current) setError((e as Error).message);
+    } finally {
+      if (request === leadRequest.current) setOpeningLead(undefined);
     }
   }
   async function saveLead() {
-    if (!selectedLead) return;
+    if (!selectedLead || savingRef.current || openingLead || leadConflict || !canEdit || !dirty) return;
+    const request = leadRequest.current;
+    savingRef.current = true;
     setSaving(true);
     setError('');
     try {
-      await api(`/leads/${selectedLead.id}`, {
+      const detail = await api<LeadRecord>(`/leads/${selectedLead.id}`, {
         method: 'PATCH',
         body: JSON.stringify({
+          expectedRevision: selectedLead.revision,
           status: selectedLead.status,
           tags: selectedLead.tags.filter(Boolean),
           assignedMembershipId: selectedLead.assignedMembership?.id ?? null,
@@ -479,12 +586,15 @@ export function LeadList() {
           ...(selectedLead.phone ? { phone: selectedLead.phone } : {}),
         }),
       });
-      const detail = await api<LeadRecord>(`/leads/${selectedLead.id}`);
-      setSelectedLead(detail);
+      if (request !== leadRequest.current) return;
+      setSelectedLead({ ...selectedLead, ...detail });
+      setSavedChanges(leadChanges(detail));
       setLeads((rows) => rows?.map((row) => (row.id === detail.id ? { ...row, ...detail } : row)));
     } catch (e) {
       setError((e as Error).message);
+      if (e instanceof ApiError && e.status === 409) setLeadConflict(true);
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
@@ -667,7 +777,10 @@ export function LeadList() {
                     })}
                   </td>
                   <td>
-                    <Button onClick={() => openLead(lead)}>Ver detalhes</Button>
+                    <Button onClick={() => openLead(lead)} aria-busy={openingLead?.id === lead.id}>
+                      {openingLead?.id === lead.id && <LoaderCircle size={14} className="spin" />}
+                      Ver detalhes
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -684,8 +797,26 @@ export function LeadList() {
         )
       )}
 
+      {openingLead && !selectedLead && (
+        <div className="info-box" role="status" aria-live="polite">
+          <LoaderCircle size={16} className="spin" /> Carregando detalhes de {openingLead.name}…
+          <Button onClick={closeLead}>Cancelar carregamento</Button>
+        </div>
+      )}
       {selectedLead && (
-        <Dialog title={`Lead · ${selectedLead.name}`} wide onClose={() => setSelectedLead(undefined)}>
+        <Dialog title={`Lead · ${selectedLead.name}`} wide onClose={closeLead}>
+          {leadConflict && (
+            <div className="info-box">
+              <p>
+                Este lead foi alterado por outra pessoa. Suas edições continuam nesta janela. Recarregue os
+                dados atuais antes de editar e salvar novamente.
+              </p>
+              <Button onClick={reloadLead} disabled={!!openingLead || saving}>
+                Recarregar dados
+              </Button>
+            </div>
+          )}
+          {openingLead && <p role="status">Recarregando dados do lead…</p>}
           {error && (
             <div className="validation-errors" role="alert">
               {error}
@@ -747,7 +878,7 @@ export function LeadList() {
               </div>
             )}
 
-            <fieldset disabled={!canEdit || saving} className="inspector-fields">
+            <fieldset disabled={!canEdit || saving || !!openingLead} className="inspector-fields">
               <label className="field">
                 Responsável
                 <select
@@ -817,10 +948,14 @@ export function LeadList() {
                 />{' '}
                 Consentimento do destinatário confirmado para este canal
               </label>
-              <Button onClick={saveLead} disabled={!canEdit || saving}>
-                Salvar alterações do lead
+              <Button
+                onClick={saveLead}
+                disabled={!canEdit || saving || !!openingLead || leadConflict || !dirty}
+              >
+                {saving ? 'Salvando alterações do lead…' : 'Salvar alterações do lead'}
               </Button>
             </fieldset>
+            {saving && <p role="status">Salvando alterações. Aguarde para fechar esta janela.</p>}
             <h3>Conversa e mensagens</h3>
             {selectedLead.conversation?.length ? (
               selectedLead.conversation.map((event) => (
@@ -862,7 +997,7 @@ export function LeadList() {
             )}
 
             <div style={{ textAlign: 'right', marginTop: '20px' }}>
-              <Button variant="primary" onClick={() => setSelectedLead(undefined)}>
+              <Button variant="primary" onClick={closeLead} disabled={saving}>
                 Fechar
               </Button>
             </div>
