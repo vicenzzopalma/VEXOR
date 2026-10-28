@@ -362,7 +362,7 @@ export function ProjectHome() {
               <footer>
                 <span>
                   <GitBranch size={14} />
-                  {p.workflowCount} {p.workflowCount === 1 ? 'fluxo ativo' : 'fluxos ativos'}
+                  {p.workflowCount} {p.workflowCount === 1 ? 'fluxo' : 'fluxos'} · SAIR ativo
                 </span>
                 <span>
                   Última atividade<time dateTime={p.lastActivityAt}>{date(p.lastActivityAt)}</time>

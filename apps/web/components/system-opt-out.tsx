@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import Link from 'next/link';
 import {
   ReactFlow,
@@ -12,6 +12,7 @@ import {
   type Edge,
   type Node,
   type NodeProps,
+  type ReactFlowInstance,
 } from '@xyflow/react';
 import {
   AlertTriangle,
@@ -172,6 +173,13 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
   const [mode, setMode] = useState<'editor' | 'runs'>('editor');
   const [busy, setBusy] = useState(false);
   const [role, setRole] = useState('viewer');
+  const flow = useRef<ReactFlowInstance<StepNode, Edge> | null>(null);
+  // Reajusta o canvas quando a janela muda de tamanho (como no editor).
+  useEffect(() => {
+    const refit = () => flow.current?.fitView({ padding: 0.22 });
+    window.addEventListener('resize', refit);
+    return () => window.removeEventListener('resize', refit);
+  }, []);
   const load = useCallback(async () => {
     try {
       setData(await api<State>(`/projects/${projectId}/system-opt-out`));
@@ -538,7 +546,12 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
             elementsSelectable
             deleteKeyCode={null}
             onNodeClick={(_, node) => setOpen(node.id)}
-            minZoom={0.3}
+            onInit={(instance) => {
+              flow.current = instance;
+              // Enquadra de novo depois do layout final (no celular a barra superior quebra em duas linhas).
+              setTimeout(() => instance.fitView({ padding: 0.22 }), 120);
+            }}
+            minZoom={0.1}
             maxZoom={1.6}
             proOptions={{ hideAttribution: true }}
           >
