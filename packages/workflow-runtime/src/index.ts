@@ -232,7 +232,9 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
           leadSchema.parse(state.lead);
           // A READY checkpoint may sit in the queue past its deadline (worker down, backlog).
           // Recheck under the execution lock so expired continuations never run their actions.
-          const [{ now }] = await tx.$queryRaw<Array<{ now: Date }>>`SELECT (NOW() AT TIME ZONE 'UTC') AS now`;
+          const [{ now }] = await tx.$queryRaw<
+            Array<{ now: Date }>
+          >`SELECT (NOW() AT TIME ZONE 'UTC') AS now`;
           if (checkpoint.expiresAt && checkpoint.expiresAt <= now) {
             await tx.executionCheckpoint.update({
               where: { id: checkpoint.id, revision: checkpoint.revision, status: 'READY' },
@@ -730,4 +732,23 @@ export async function dispatchNextWhatsApp(prisma: PrismaClient, transport?: Tra
 }
 
 export { processNextWhatsAppEvent } from './inbox';
+export {
+  enqueueOptOutConfirmation,
+  dispatchNextOptOutConfirmation,
+  activateOptOutConfirmations,
+} from './opt-out';
 export { dispatchNextEmail } from './delivery';
+export {
+  dispatchNextOptOut,
+  captureOptOutInTransaction,
+  revokeLeadConsent,
+  deliveryOutcome,
+  optOutBackoffMs,
+  buildOptOutDelivery,
+  esferaTransport,
+  reserveOptOut,
+  OPT_OUT_LEASE_MS,
+  OPT_OUT_MAX_BACKOFF_MS,
+  type OptOutTransport,
+  type DeliveryOutcome,
+} from './opt-out';

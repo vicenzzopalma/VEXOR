@@ -20,6 +20,7 @@ model Organization {
   name          String
   createdAt     DateTime       @default(now())
   workflows     Workflow[]
+  projects      Project[]
   memberships   Membership[]
   users         User[]
   leads         Lead[]
@@ -28,6 +29,8 @@ model Organization {
   connections   WhatsAppConnection[]
   integrations  IntegrationConnection[]
   ingressLogs   WebhookIngressLog[]
+  optOutEvents  OptOutEvent[]
+  optOutConfirmations OptOutConfirmation[]
 }
 
 model Membership {
@@ -81,10 +84,32 @@ model Session {
   @@index([userId, expiresAt])
 }
 
+model Project {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  name           String
+  normalizedName String
+  description    String?
+  color          String?
+  icon           String?
+  revision       Int          @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  workflows      Workflow[]
+
+  @@unique([organizationId, normalizedName])
+  @@unique([id, organizationId])
+  @@index([organizationId, updatedAt])
+}
+
 model Workflow {
   id             String            @id @default(uuid())
   organizationId String            @map("organization_id")
   organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  projectId      String            @default(dbgenerated()) @map("project_id")
+  project        Project           @relation(fields: [projectId, organizationId], references: [id, organizationId], onDelete: Restrict, onUpdate: NoAction)
   draft          Json
   revision       Int               @default(1)
   archivedAt     DateTime?
@@ -98,6 +123,7 @@ model Workflow {
   @@unique([id, organizationId])
   @@index([organizationId, updatedAt])
   @@index([organizationId, archivedAt])
+  @@index([projectId, updatedAt])
 }
 
 model WorkflowVersion {
@@ -366,6 +392,67 @@ model WebhookRateBucket {
   key            String @id
   count          Int
   expiresAt      DateTime
+}
+
+// Durable outbox of opt-out ("SAIR") requests detected on inbound WhatsApp messages or entered
+// by a member. Each row is delivered to the Esfera company mapped to this organization, with
+// retries, and is only DELIVERED after Esfera acknowledges a durable write.
+model OptOutEvent {
+  id                     String       @id @default(uuid())
+  organizationId         String       @map("organization_id")
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  connectionId           String?
+  sourceEventId          String?
+  eventKey               String       @unique
+  phone                  String
+  classification         String       // OPT_OUT | AMBIGUOUS | MANUAL
+  excerpt                String       @default("")
+  receivedAt             DateTime
+  status                 String       @default("PENDING") // PENDING | PROCESSING | DELIVERED | FAILED | REVIEW | DISMISSED
+  attempt                Int          @default(0)
+  availableAt            DateTime     @default(now())
+  processingAt           DateTime?
+  deliveryToken          String?
+  errorCode              String?
+  deliveredAt            DateTime?
+  ackStatus              String?
+  resolvedByMembershipId String?
+  resolvedAt             DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@index([status, availableAt])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, phone])
+}
+
+// Separate queue: never delays Esfera delivery. A unique company+phone key survives repeated SAIR.
+model OptOutConfirmation {
+  id String @id @default(uuid())
+  organizationId String @map("organization_id")
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  phoneKey String
+  phone String
+  connectionId String
+  sourceOptOutId String
+  status String @default("PENDING")
+  attempt Int @default(0)
+  availableAt DateTime @default(now())
+  processingAt DateTime?
+  deliveryToken String?
+  errorCode String?
+  providerMessageId String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, phoneKey])
+  @@index([status, availableAt])
+}
+
+model OptOutConfirmationActivation {
+  id String @id @default("default")
+  activatedAt DateTime @default(now())
 }
 
 model WebhookIngressLog {

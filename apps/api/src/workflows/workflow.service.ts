@@ -31,12 +31,13 @@ export class WorkflowService {
 
   async onModuleInit() {
     await this.db.$connect();
+    const testDatabase = /_test$/.test(new URL(process.env.DATABASE_URL!).pathname);
     for (const [id, name] of [
       ['org-local', 'Meu espaço de trabalho'],
-      ['org-other', 'Empresa de teste isolada'],
+      ...(testDatabase ? [['org-other', 'Empresa de teste isolada']] : []),
     ])
       await this.db.organization.upsert({ where: { id }, update: {}, create: { id, name } });
-    for (const name of ['owner', 'other', 'editor', 'viewer']) {
+    for (const name of ['owner', 'editor', 'viewer', ...(testDatabase ? ['other'] : [])]) {
       const token = process.env[`DEV_${name.toUpperCase()}_TOKEN`];
       if (!token) throw new Error('Inicie com npm run dev para gerar sessões locais.');
       const organizationId = name === 'other' ? 'org-other' : 'org-local';
@@ -52,11 +53,12 @@ export class WorkflowService {
         create: { tokenHash: hash(token), membershipId: `dev-${name}` },
       });
     }
-    await this.db.workflow.upsert({
-      where: { id: 'starter-sdr' },
-      update: {},
-      create: { id: 'starter-sdr', organizationId: 'org-local', draft: json(createSdrTemplate()) },
-    });
+    if (testDatabase)
+      await this.db.workflow.upsert({
+        where: { id: 'starter-sdr' },
+        update: {},
+        create: { id: 'starter-sdr', organizationId: 'org-local', draft: json(createSdrTemplate()) },
+      });
   }
 
   async onModuleDestroy() {
@@ -67,6 +69,7 @@ export class WorkflowService {
     const row = await this.db.workflow.findFirst({
       where: { id, organizationId },
       include: {
+        project: true,
         versions: { select: { id: true, number: true, createdAt: true }, orderBy: { number: 'desc' } },
       },
     });
@@ -74,14 +77,15 @@ export class WorkflowService {
     return row;
   }
 
-  async list(organizationId: string) {
+  async list(organizationId: string, projectId?: string) {
     const rows = await this.db.workflow.findMany({
-      where: { organizationId },
+      where: { organizationId, ...(projectId ? { projectId } : {}) },
       orderBy: { updatedAt: 'desc' },
       include: { _count: { select: { versions: true, simulations: true, executions: true } } },
     });
     return rows.map((r) => ({
       id: r.id,
+      projectId: r.projectId,
       name: (r.draft as unknown as Workflow).name,
       nodeCount: (r.draft as unknown as Workflow).nodes.length,
       updatedAt: r.updatedAt,
@@ -112,6 +116,11 @@ export class WorkflowService {
 
   async save(id: string, organizationId: string, body: z.infer<typeof saveSchema>) {
     return this.db.$transaction(async (tx) => {
+      const projects = await tx.$queryRaw<
+        Array<{ archivedAt: Date | null }>
+      >`SELECT p."archivedAt" FROM "Project" p JOIN "Workflow" w ON w."project_id"=p."id" AND w."organization_id"=p."organization_id" WHERE w."id"=${id} AND w."organization_id"=${organizationId} FOR UPDATE OF p`;
+      if (projects[0]?.archivedAt)
+        throw new BadRequestException('Restaure o projeto antes de editar seus fluxos.');
       const exists = await tx.workflow.findFirst({ where: { id, organizationId } });
       if (!exists) throw new NotFoundException('Processo não encontrado.');
       if (exists.archivedAt)
@@ -137,6 +146,11 @@ export class WorkflowService {
   async publish(id: string, organizationId: string, revision: number) {
     // A row lock serializes publish vs. save and simultaneous publish requests.
     return this.db.$transaction(async (tx) => {
+      const projects = await tx.$queryRaw<
+        Array<{ archivedAt: Date | null }>
+      >`SELECT p."archivedAt" FROM "Project" p JOIN "Workflow" w ON w."project_id"=p."id" AND w."organization_id"=p."organization_id" WHERE w."id"=${id} AND w."organization_id"=${organizationId} FOR UPDATE OF p`;
+      if (projects[0]?.archivedAt)
+        throw new BadRequestException('Restaure o projeto antes de publicar seus fluxos.');
       const rows = await tx.$queryRaw<
         Array<{ draft: Workflow; revision: number; archivedAt: Date | null }>
       >`SELECT "draft", "revision", "archivedAt" FROM "Workflow" WHERE "id"=${id} AND "organization_id"=${organizationId} FOR UPDATE`;
@@ -194,9 +208,13 @@ export class WorkflowService {
     };
   }
 
-  async runs(organizationId: string, workflowId?: string) {
+  async runs(organizationId: string, workflowId?: string, projectId?: string) {
     const rows = await this.db.simulation.findMany({
-      where: { organizationId, ...(workflowId ? { workflowId } : {}) },
+      where: {
+        organizationId,
+        ...(workflowId ? { workflowId } : {}),
+        ...(projectId ? { workflow: { projectId } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
@@ -236,9 +254,13 @@ export class WorkflowService {
     };
   }
 
-  async listExecutions(organizationId: string, workflowId?: string) {
+  async listExecutions(organizationId: string, workflowId?: string, projectId?: string) {
     const rows = await this.db.execution.findMany({
-      where: { organizationId, ...(workflowId ? { workflowId } : {}) },
+      where: {
+        organizationId,
+        ...(workflowId ? { workflowId } : {}),
+        ...(projectId ? { workflow: { projectId } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 50,
       include: {

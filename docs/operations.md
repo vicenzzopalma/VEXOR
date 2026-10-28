@@ -62,6 +62,20 @@ O destinatário precisa de telefone e consentimento explícito. Texto livre pela
 
 O gatilho de mensagem recebida gera jobs e reutiliza um lead por contato/conexão/workflow. A nova conversa nativa está no catálogo, mas a publicação fica bloqueada, pois nenhum adaptador atual confirma esse evento. Contatos recebidos sem dados comerciais exibem identificação genérica e não recebem consentimento automaticamente. Não há atribuição ao primeiro membro da organização.
 
+## Descadastro central (SAIR) para o Esfera
+
+Configure uma vez por instalação, em ambiente, o mapa organização → empresa do Esfera:
+
+```
+ESFERA_OPTOUT_LINKS_JSON={"<organizationId>":{"baseUrl":"http://127.0.0.1:8080","companyId":1,"token":"<token de empresa>"}}
+```
+
+- `baseUrl`: `https://` para qualquer host, ou `http://127.0.0.1:<porta>` quando o Esfera roda na mesma máquina (servidor de check-in do Esfera, porta padrão 8080). Sem credenciais na URL, sem redirecionamentos.
+- `companyId`: `CompanyId` da empresa no Esfera. O token precisa pertencer a essa empresa (ou ser o token master); o Esfera recusa com 403 qualquer combinação diferente.
+- `token`: gerado no Esfera pelo master (`generate_company_token`), guardado só aqui. Nunca aparece em logs, respostas da API ou no corpo enviado.
+
+Sem mapeamento, os pedidos ficam `PENDING` com `ESFERA_LINK_NOT_CONFIGURED` e são entregues assim que a variável for definida e o worker reiniciado. O worker precisa estar ligado (`RUN_WORKER` diferente de `false`) para entregar. Pedidos ambíguos aguardam em `REVIEW` e aparecem em `GET /opt-outs?status=REVIEW`. Texto neutro para as mensagens enviadas: "Para deixar de receber mensagens por este canal, responda SAIR." O SAIR nunca deve ser associado a reconhecimento de dívida ou renúncia a contestação/recurso. A homologação com WhatsApp real continua suspensa pela quarentena: os testes usam o provedor MOCK e um servidor HTTP local no lugar do Esfera.
+
 ## Semântica da outbox
 
 `PENDING` sem ID aguarda envio. `PROCESSING` está reservado. `PENDING` com ID foi aceito pelo provedor e aguarda recibo, sem novo envio. `SENT`, `DELIVERED` e `READ` dependem da confirmação correspondente. Falhas têm `errorCode`. Avisos internos usam `AVAILABLE`. Recibos são persistidos, deduplicados por conexão/evento/tipo e reconciliados para tratar corrida com a resposta HTTP.

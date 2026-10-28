@@ -2,11 +2,38 @@ import type { Workflow, SimulationResult } from '@eimax/workflow-schema';
 export type VersionInfo = { id: string; number: number; createdAt: string };
 export type WorkflowRecord = {
   id: string;
+  projectId: string;
+  project: ProjectRecord;
   draft: Workflow;
   revision: number;
   archivedAt?: string | null;
   updatedAt: string;
   versions: VersionInfo[];
+};
+export type ProjectRecord = {
+  id: string;
+  name: string;
+  description: string | null;
+  color: string | null;
+  icon: string | null;
+  revision: number;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  workflowCount: number;
+  lastActivityAt: string;
+};
+export type ProjectWorkflow = {
+  id: string;
+  projectId: string;
+  name: string;
+  revision: number;
+  archivedAt: string | null;
+  updatedAt: string;
+  nodeCount: number;
+  versions: number;
+  executions: number;
+  simulations: number;
 };
 export class ApiError extends Error {
   constructor(

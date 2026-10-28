@@ -9,7 +9,7 @@ import { connectionRevision, sealSecrets } from '@eimax/connectors';
 import { dispatchNextEmail, dispatchNextWhatsApp, enqueueWorkflowExecution } from '@eimax/workflow-runtime';
 import { createSdrTemplate, sampleLead, type Workflow } from '@eimax/workflow-schema';
 import { waitForExecution } from './helpers';
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public';
 const db = new PrismaClient();
 // Use the same CommonJS class identity as the compiled runtime for injected failures.
 const { ConnectorError } = createRequire(import.meta.url)('@eimax/connectors');

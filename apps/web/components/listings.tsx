@@ -15,7 +15,14 @@ import {
   UserCheck,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { api, ApiError, type Run, type ExecutionRecord, type LeadRecord } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type Run,
+  type ExecutionRecord,
+  type LeadRecord,
+  type ProjectRecord,
+} from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { RunLog } from './run-log';
 
@@ -161,11 +168,22 @@ export function TemplateList() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [name, setName] = useState('Meu processo SDR');
+  const [projects, setProjects] = useState<ProjectRecord[]>([]);
+  const [projectId, setProjectId] = useState('');
   const [dialog, setDialog] = useState(false);
+  useEffect(() => {
+    api<ProjectRecord[]>('/projects')
+      .then((rows) => {
+        const active = rows.filter((p) => !p.archivedAt);
+        setProjects(active);
+        setProjectId(active.find((p) => p.name === 'Geral')?.id ?? active[0]?.id ?? '');
+      })
+      .catch((e) => setError(e.message));
+  }, []);
   const create = async () => {
     setCreating(true);
     try {
-      const row = await api<{ id: string }>('/workflows', {
+      const row = await api<{ id: string }>(`/projects/${projectId}/workflows`, {
         method: 'POST',
         body: JSON.stringify({ template: 'sdr', name }),
       });
@@ -243,6 +261,22 @@ export function TemplateList() {
             }}
           >
             <label className="field" style={{ marginTop: 20 }}>
+              Projeto
+              <select required value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+                <option value="">Selecione um projeto ativo</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {!projects.length && (
+              <p>
+                Crie um <Link href="/">novo projeto</Link> antes de usar este modelo.
+              </p>
+            )}
+            <label className="field" style={{ marginTop: 20 }}>
               Nome do processo
               <input
                 autoFocus
@@ -261,7 +295,7 @@ export function TemplateList() {
               <Button type="button" onClick={() => setDialog(false)} disabled={creating}>
                 Cancelar
               </Button>
-              <Button variant="primary" disabled={creating || !name.trim()}>
+              <Button variant="primary" disabled={creating || !name.trim() || !projectId}>
                 {creating ? <LoaderCircle size={15} className="spin" /> : <Plus size={15} />}Criar e
                 personalizar
               </Button>
@@ -273,7 +307,8 @@ export function TemplateList() {
   );
 }
 
-export function RunList() {
+export function RunList({ projectId }: { projectId?: string } = {}) {
+  const Container = projectId ? 'section' : 'main';
   const [tab, setTab] = useState<'real' | 'simulation'>('real');
   const [realRuns, setRealRuns] = useState<ExecutionRecord[]>();
   const [simRuns, setSimRuns] = useState<Run[]>();
@@ -289,7 +324,9 @@ export function RunList() {
       pending = true;
       try {
         if (tab === 'real') {
-          const rows = await api<ExecutionRecord[]>('/executions');
+          const rows = await api<ExecutionRecord[]>(
+            projectId ? `/projects/${projectId}/executions` : '/executions',
+          );
           if (!active) return;
           setRealRuns(rows);
           setSelected((current: any) =>
@@ -298,7 +335,7 @@ export function RunList() {
               : current,
           );
         } else {
-          const rows = await api<Run[]>('/simulations');
+          const rows = await api<Run[]>(projectId ? `/projects/${projectId}/simulations` : '/simulations');
           if (!active) return;
           setSimRuns(rows);
         }
@@ -315,13 +352,13 @@ export function RunList() {
       active = false;
       clearInterval(timer);
     };
-  }, [tab]);
+  }, [tab, projectId]);
 
   const loading = tab === 'real' ? !realRuns && !error : !simRuns && !error;
   if (loading) return <Loading />;
 
   return (
-    <main className="listing-page">
+    <Container className="listing-page">
       <div className="listing-heading">
         <div>
           <div className="eyebrow">
@@ -338,7 +375,7 @@ export function RunList() {
           <Link href="/leads" className="btn">
             Ver leads <ArrowRight size={14} />
           </Link>
-          <Link href="/processos" className="btn">
+          <Link href={projectId ? `/projetos/${projectId}` : '/'} className="btn">
             Ver processos <ArrowRight size={14} />
           </Link>
         </div>
@@ -458,7 +495,7 @@ export function RunList() {
           <RunLog run={selected} onClose={() => setSelected(undefined)} />
         </Dialog>
       )}
-    </main>
+    </Container>
   );
 }
 

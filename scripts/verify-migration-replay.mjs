@@ -1,6 +1,8 @@
+import { configureTestEnvironment } from './test-environment.mjs';
 import { PrismaClient } from '@prisma/client';
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+configureTestEnvironment();
 const url = new URL(
   process.env.DATABASE_URL ?? 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public',
 );

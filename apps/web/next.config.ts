@@ -1,6 +1,7 @@
 
 import type { NextConfig } from 'next';
 const config: NextConfig = {
+  distDir: process.env.NEXT_TEST_DIST ?? '.next',
   devIndicators: false,
   transpilePackages: ['@eimax/shared-ui'],
   async rewrites() {

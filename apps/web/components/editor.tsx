@@ -147,7 +147,7 @@ function EditorWorkspace({ id }: { id: string }) {
   };
   const [snapshot, setSnapshot] = useState<{ number: number; snapshot: WorkflowModel }>();
   const playback = useRef(0);
-  const readOnly = state.role === 'viewer';
+  const readOnly = state.role === 'viewer' || state.archived;
   useEffect(() => {
     if (!toast) return;
     const timer = setTimeout(() => setToast(''), 4200);
@@ -532,13 +532,23 @@ function EditorWorkspace({ id }: { id: string }) {
     <main className="editor-page">
       <div className="editor-toolbar">
         <div className="process-heading">
-          <Link href="/processos" className="back-button" aria-label="Voltar aos processos">
+          <Link
+            href={state.project ? `/projetos/${state.project.id}` : '/'}
+            className="back-button"
+            aria-label="Voltar ao projeto"
+          >
             <ArrowLeft size={18} />
           </Link>
           <div>
-            <div className="breadcrumb">
-              Meus processos <span>/</span> Comercial
-            </div>
+            <nav className="breadcrumb editor-breadcrumb" aria-label="Breadcrumb">
+              <Link href="/">Projetos</Link>
+              <span>/</span>
+              <Link href={state.project ? `/projetos/${state.project.id}` : '/'}>
+                {state.project?.name ?? 'Projeto'}
+              </Link>
+              <span>/</span>
+              <span aria-current="page">{flow.name}</span>
+            </nav>
             <div className="process-title">
               <input
                 aria-label="Nome do processo"
@@ -547,7 +557,7 @@ function EditorWorkspace({ id }: { id: string }) {
                 disabled={readOnly}
                 onChange={(e) => change((f) => ({ ...f, name: e.target.value }))}
               />
-              <span className="draft-badge">Rascunho</span>
+              <span className="draft-badge">{state.archived ? 'Arquivado' : 'Rascunho'}</span>
             </div>
           </div>
         </div>

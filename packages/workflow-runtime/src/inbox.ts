@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 import { type Workflow } from '@eimax/workflow-schema';
 import { QUARANTINE_STATUS_REASONS } from '@eimax/connectors';
 import { enqueueInTransaction } from './index';
+import { captureOptOutInTransaction } from './opt-out';
 
 export async function processNextWhatsAppEvent(db: PrismaClient) {
   let eventId: string | undefined;
@@ -18,6 +19,21 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
           include: { connection: true },
         });
         const connection = event.connection;
+        // A "SAIR" reply is honoured even when the connection is disabled or no workflow is routed:
+        // the opt-out is recorded for the connection's organization and queued for Esfera.
+        if (event.kind === 'MESSAGE') {
+          const payload = event.payload as { from: string; text?: string; timestamp?: string | number };
+          const ts = Number(payload.timestamp) * 1000;
+          await captureOptOutInTransaction(tx, {
+            organizationId: connection.organizationId,
+            connectionId: connection.id,
+            providerEventId: event.providerEventId,
+            sourceEventId: event.id,
+            from: payload.from,
+            text: payload.text,
+            receivedAt: Number.isFinite(ts) && ts > 0 && ts <= Date.now() + 60000 ? new Date(ts) : event.createdAt,
+          });
+        }
         if (!connection.enabled)
           return tx.whatsAppEvent.update({
             where: { id: event.id },

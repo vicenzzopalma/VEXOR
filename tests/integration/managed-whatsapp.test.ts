@@ -3,7 +3,7 @@ import { afterAll, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { managedEvolutionInstance } from '@eimax/connectors';
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public';
 const db = new PrismaClient();
 const sessions = JSON.parse(readFileSync('.local/development-sessions.json', 'utf8'));
 const created: string[] = [];

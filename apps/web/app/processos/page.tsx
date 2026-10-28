@@ -1,5 +1,4 @@
-
-import { ProcessList } from '@/components/listings';
+import { redirect } from 'next/navigation';
 export default function Page() {
-  return <ProcessList />;
+  redirect('/');
 }

@@ -1,5 +1,7 @@
 
 import { defineConfig, devices } from '@playwright/test';
+import { configureTestEnvironment } from './scripts/test-environment.mjs';
+configureTestEnvironment();
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: false,
@@ -7,7 +9,7 @@ export default defineConfig({
   retries: 0,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:3000',
+    baseURL: 'http://127.0.0.1:3001',
     channel: 'msedge',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

@@ -5,7 +5,7 @@ import { createSdrTemplate, sampleLead } from '@eimax/workflow-schema';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public';
 const db = new PrismaClient();
 afterAll(() => db.$disconnect());
 
@@ -346,7 +346,7 @@ describe('Fase 5.2 — Integridade Histórica e Preservação de Versões', () =
     const parsed = JSON.parse(output.trim());
     expect(parsed).toMatchObject({
       database: 'eimax_phase52_migration_replay',
-      migrations: 16,
+      migrations: 19,
       schemaDiffEmpty: true,
       applicationDatabaseReset: false,
     });

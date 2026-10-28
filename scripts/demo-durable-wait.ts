@@ -1,3 +1,4 @@
+import { configureTestEnvironment } from './test-environment.mjs';
 import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -6,7 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { durableFixture } from '../tests/fixtures/durable-flow';
 import { enqueueWorkflowExecution } from '@eimax/workflow-runtime';
 
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+configureTestEnvironment();
 const db = new PrismaClient();
 const children: ReturnType<typeof spawn>[] = [];
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -42,7 +43,7 @@ async function stop(child: ReturnType<typeof spawn>) {
 async function main() {
   const f = await durableFixture(db, 30, 'org-local');
   const sessions = JSON.parse(readFileSync('.local/development-sessions.json', 'utf8'));
-  const accepted = await fetch(`http://127.0.0.1:4000/workflows/${f.workflow.id}/execute`, {
+  const accepted = await fetch(`http://127.0.0.1:4001/workflows/${f.workflow.id}/execute`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -1,5 +1,4 @@
-
-import { redirect } from 'next/navigation';
+import { ProjectHome } from '@/components/projects';
 export default function Page() {
-  redirect('/editor/starter-sdr');
+  return <ProjectHome />;
 }

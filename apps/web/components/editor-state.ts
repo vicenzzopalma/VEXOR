@@ -1,10 +1,11 @@
-
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Workflow } from '@eimax/workflow-schema';
-import { api, ApiError, type WorkflowRecord, type VersionInfo } from '@/lib/api';
+import { api, ApiError, type WorkflowRecord, type VersionInfo, type ProjectRecord } from '@/lib/api';
 export function useEditorState(id: string) {
   const [flow, setFlow] = useState<Workflow>();
+  const [project, setProject] = useState<ProjectRecord>();
+  const [archived, setArchived] = useState(false);
   const flowRef = useRef<Workflow | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -34,6 +35,8 @@ export function useEditorState(id: string) {
         revision.current = record.revision;
         saved.current = JSON.stringify(record.draft);
         setVersions(record.versions);
+        setProject(record.project);
+        setArchived(Boolean(record.archivedAt || record.project.archivedAt));
         setRole(me.role);
         setLoading(false);
       })
@@ -57,14 +60,14 @@ export function useEditorState(id: string) {
   }, []);
   const change = useCallback(
     (fn: (flow: Workflow) => Workflow, record = true) => {
-      if (!flowRef.current || role === 'viewer') return;
+      if (!flowRef.current || role === 'viewer' || archived) return;
       const next = fn(flowRef.current);
       if (JSON.stringify(next) === JSON.stringify(flowRef.current)) return;
       if (record) checkpoint();
       acceptFlow(next);
       setSaveStatus(blocked.current ? 'conflict' : 'dirty');
     },
-    [checkpoint, role],
+    [checkpoint, role, archived],
   );
   const undo = useCallback(() => {
     const previous = past.current.pop();
@@ -143,6 +146,8 @@ export function useEditorState(id: string) {
   }, []);
   return {
     flow,
+    project,
+    archived,
     loading,
     error,
     setError,

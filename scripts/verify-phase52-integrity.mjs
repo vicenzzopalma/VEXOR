@@ -1,9 +1,11 @@
+import { configureTestEnvironment } from './test-environment.mjs';
 import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
+configureTestEnvironment();
 const url = new URL(
   process.env.DATABASE_URL ?? 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public',
 );

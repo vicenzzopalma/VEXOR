@@ -19,8 +19,8 @@
     "lint": "eslint . --max-warnings=0",
     "typecheck": "npm run build:packages && tsc --noEmit -p apps/api/tsconfig.json && tsc --noEmit -p apps/web/tsconfig.json && tsc --noEmit -p apps/worker/tsconfig.json",
     "test": "vitest run --config vitest.config.mts",
-    "test:integration": "vitest run --config vitest.integration.config.mts",
-    "test:e2e": "playwright test",
+    "test:integration": "node scripts/test-services.mjs integration",
+    "test:e2e": "node scripts/test-services.mjs e2e",
     "monstro": "node scripts/generate-monstro.mjs"
   },
   "engines": {

@@ -6,7 +6,7 @@ import { durableFixture } from '../fixtures/durable-flow';
 test('editor configura segundos e histórico real acompanha suspensão e retomada', async ({
   page,
 }, testInfo) => {
-  process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+  process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public';
   const db = new PrismaClient();
   let child: ReturnType<typeof spawn> | undefined;
   try {

@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import { closeSync, existsSync, openSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { startDatabase } from './database.mjs';
 import { loadDevelopmentSessions } from './development-sessions.mjs';
 import {
@@ -29,6 +29,26 @@ const finish = (child) =>
     child.on('error', reject);
     child.on('exit', (code) => (code === 0 ? accept() : reject(new Error(`Comando falhou (${code}).`))));
   });
+// On Windows, Ctrl+C returns the prompt while the previous run is still stopping PostgreSQL.
+// A new run must wait for it; otherwise it sees the database "up" and loses it seconds later.
+const lockPath = resolve('.local/dev.lock');
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+async function waitForPreviousRun() {
+  for (let attempt = 0; attempt < 60; attempt++) {
+    const pid = existsSync(lockPath) ? Number(readFileSync(lockPath, 'utf8')) : 0;
+    if (!pid || pid === process.pid || !alive(pid)) return;
+    if (attempt === 0) console.log('Aguardando a execução anterior do VEXOR terminar de encerrar...');
+    await new Promise((accept) => setTimeout(accept, 1000));
+  }
+  throw new Error('Outra execução do npm run dev continua ativa. Encerre-a antes de iniciar outra.');
+}
 let stopping = false;
 async function stop(exitCode = 0, reason = 'desconhecido') {
   if (stopping) return;
@@ -46,6 +66,10 @@ async function stop(exitCode = 0, reason = 'desconhecido') {
     else child.kill('SIGTERM');
   }
   if (pg) await pg.stop();
+  // Release the lock only after PostgreSQL has stopped.
+  try {
+    if (existsSync(lockPath) && Number(readFileSync(lockPath, 'utf8')) === process.pid) rmSync(lockPath);
+  } catch {}
   process.exit(exitCode);
 }
 process.on('SIGINT', () => stop(0, 'SIGINT'));
@@ -58,6 +82,8 @@ process.on('unhandledRejection', (reason) => {
   console.error('[dev.mjs] unhandledRejection:', reason);
 });
 try {
+  await waitForPreviousRun();
+  writeFileSync(lockPath, String(process.pid));
   await finish(
     run('node_modules/typescript/bin/tsc', [
       '-b',

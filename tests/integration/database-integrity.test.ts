@@ -3,7 +3,7 @@ import { afterAll, expect, it } from 'vitest';
 import { PrismaClient, type Prisma } from '@prisma/client';
 import { createSdrTemplate, sampleLead } from '@eimax/workflow-schema';
 import { spawn } from 'node:child_process';
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public';
 const db = new PrismaClient();
 afterAll(() => db.$disconnect());
 const rollback = new Error('ROLLBACK_OWN_TEST_FIXTURES');
@@ -21,7 +21,7 @@ it('histórico completo de migrações reproduz schema e guardas em banco isolad
     child.on('exit', (code) => (code === 0 ? resolve(output) : reject(new Error('Migration replay failed'))));
   });
   expect(JSON.parse(output.trim())).toMatchObject({
-    migrations: 16,
+    migrations: 19,
     schemaDiffEmpty: true,
     applicationDatabaseReset: false,
   });

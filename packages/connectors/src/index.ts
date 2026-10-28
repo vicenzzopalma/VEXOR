@@ -16,6 +16,8 @@ import { connectorRegistry } from './contracts';
 export * from './contracts';
 export * from './whatsapp-events';
 export * from './managed-evolution';
+export * from './opt-out';
+import { OPT_OUT_CONFIRMATION_TEXT, optOutConfirmationPolicy } from './opt-out';
 
 export type ConnectionState =
   | 'DISCONNECTED'
@@ -124,7 +126,8 @@ export function connectorConfigurationReady(provider: string, settings: unknown,
   }
 }
 export function isWhatsAppQuarantined(
-  quarantinePath = process.env.WHATSAPP_QUARANTINE_PATH || resolve('.local/whatsapp-service-quarantined.json'),
+  quarantinePath = process.env.WHATSAPP_QUARANTINE_PATH ||
+    resolve('.local/whatsapp-service-quarantined.json'),
 ): boolean {
   try {
     return existsSync(quarantinePath);
@@ -273,6 +276,23 @@ const whatsappTransport: Transport = (...args) => {
   if (process.env.WHATSAPP_EXTERNAL_ENABLED !== 'true') throw new ConnectorError('CONFIGURATION_REQUIRED');
   return secureTransport(...args);
 };
+
+/** Narrow exception: fixed opt-out text, hard-capped recipient, only status/send adapter calls.
+ * No caller-provided text and no change to the normal external-send gate. */
+export async function sendOptOutConfirmation(
+  provider: string,
+  settings: Settings,
+  secrets: Secrets,
+  phone: string,
+  transport: Transport = secureTransport,
+) {
+  if (optOutConfirmationPolicy(phone) !== 'ALLOWED') throw new ConnectorError('CONFIRMATION_HELD');
+  const adapter = whatsappAdapter(provider, settings, secrets, transport);
+  if ((await adapter.status()) !== 'CONNECTED') throw new ConnectorError('SESSION_DISCONNECTED');
+  // Re-read policy immediately before sending, including for injected test transports.
+  if (optOutConfirmationPolicy(phone) !== 'ALLOWED') throw new ConnectorError('CONFIRMATION_HELD');
+  return adapter.send({ to: phone, text: OPT_OUT_CONFIRMATION_TEXT });
+}
 export function whatsappAdapter(
   provider: string,
   settings: Settings,
@@ -280,7 +300,8 @@ export function whatsappAdapter(
   transport: Transport = whatsappTransport,
   sessionOnly = false,
 ) {
-  if (!['META', 'EVOLUTION', 'Z_API', 'MOCK'].includes(provider)) throw new ConnectorError('PROVIDER_NOT_SUPPORTED');
+  if (!['META', 'EVOLUTION', 'Z_API', 'MOCK'].includes(provider))
+    throw new ConnectorError('PROVIDER_NOT_SUPPORTED');
 
   if (provider === 'MOCK') {
     return {
@@ -465,7 +486,9 @@ export function whatsappAdapter(
     // Last disconnect code stored by the gateway for this instance (Evolution only).
     async closeReason(): Promise<number | undefined> {
       if (provider !== 'EVOLUTION') return undefined;
-      const result = await call(`/instance/fetchInstances?instanceName=${encodeURIComponent(settings.instance!)}`);
+      const result = await call(
+        `/instance/fetchInstances?instanceName=${encodeURIComponent(settings.instance!)}`,
+      );
       const item = Array.isArray(result) ? result.find((i: any) => i?.name === settings.instance) : undefined;
       const code = Number(item?.disconnectionReasonCode);
       return Number.isInteger(code) ? code : undefined;

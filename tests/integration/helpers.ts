@@ -6,7 +6,7 @@ export async function waitForExecution(id: string) {
       db: {
         url:
           process.env.DATABASE_URL ??
-          'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public',
+          'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public',
       },
     },
   });

@@ -10,7 +10,7 @@ import {
   reserveExecution,
   processReservedExecution,
 } from '@eimax/workflow-runtime';
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax_test?schema=public';
 const db = new PrismaClient();
 function evidence(name: string, value: unknown) {
   mkdirSync('docs/validation', { recursive: true });

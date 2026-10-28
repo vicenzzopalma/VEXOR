@@ -1,13 +1,14 @@
-﻿import 'dotenv/config';
+import { configureTestEnvironment } from './test-environment.mjs';
+import 'dotenv/config';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 
-process.env.DATABASE_URL ??= 'postgresql://eimax:eimax_local_only@127.0.0.1:55432/eimax?schema=public';
+configureTestEnvironment();
 const sessions = JSON.parse(readFileSync('.local/development-sessions.json', 'utf8'));
 const prisma = new PrismaClient();
 async function request(path, role = 'owner', method = 'GET', body) {
-  const response = await fetch(`http://127.0.0.1:4000${path}`, {
+  const response = await fetch(`http://127.0.0.1:4001${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
