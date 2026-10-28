@@ -1,7 +1,7 @@
-import { Body, Controller, Get, Inject, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { DevelopmentGuard } from './development.guard';
-import { Roles, parse, type AuthorizedRequest } from './contracts';
+import { Roles, parse, executionSearchSchema, type AuthorizedRequest } from './contracts';
 import { ProjectService } from './project.service';
 import { WorkflowService } from './workflow.service';
 
@@ -83,6 +83,18 @@ export class ProjectController {
   @Get('projects/:id/executions') async executions(@Param('id') id: string, @Req() req: AuthorizedRequest) {
     await this.projects.get(id, req.access.organizationId);
     return this.workflows.listExecutions(req.access.organizationId, undefined, id);
+  }
+  @Get('projects/:id/executions/search') async searchExecutions(
+    @Param('id') id: string,
+    @Req() req: AuthorizedRequest,
+    @Query() query: unknown,
+  ) {
+    await this.projects.get(id, req.access.organizationId);
+    return this.workflows.searchExecutions(
+      req.access.organizationId,
+      id,
+      parse(executionSearchSchema, query),
+    );
   }
   @Get('projects/:id/simulations') async simulations(@Param('id') id: string, @Req() req: AuthorizedRequest) {
     await this.projects.get(id, req.access.organizationId);

@@ -290,10 +290,10 @@ test('conflito mantém edições e exige recarregamento explícito antes de salv
 test('polling remove o erro após recuperação e não traz falha antiga para simulações', async ({ page }) => {
   await fixture(page);
   let unavailable = true;
-  await page.route('**/api/executions', (route) => {
+  await page.route('**/api/executions/search?*', (route) => {
     return unavailable
       ? route.fulfill({ status: 503, json: { message: 'Falha transitória UX2' } })
-      : route.fulfill({ json: [] });
+      : route.fulfill({ json: { items: [], total: 0, page: 1, pageSize: 20 } });
   });
   await page.route('**/api/simulations', (route) => route.fulfill({ json: [] }));
   await page.goto('/execucoes');

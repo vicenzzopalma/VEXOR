@@ -23,6 +23,7 @@ import {
   type ExecutionRecord,
   type LeadRecord,
   type ProjectRecord,
+  type ProjectWorkflow,
 } from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { RunLog } from './run-log';
@@ -315,21 +316,84 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
   const [simRuns, setSimRuns] = useState<Run[]>();
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<any>();
+  const [flows, setFlows] = useState<ProjectWorkflow[]>([]);
+  const [flowError, setFlowError] = useState('');
+  const [workflowId, setWorkflowId] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [legacy, setLegacy] = useState(false);
+  const [refreshingPage, setRefreshingPage] = useState(false);
+  const invalidDates = Boolean(fromDate && toDate && fromDate > toDate);
+
+  useEffect(() => {
+    let active = true;
+    api<ProjectWorkflow[]>(projectId ? `/projects/${projectId}/workflows` : '/workflows')
+      .then((rows) => {
+        if (active) {
+          setFlows(rows);
+          setFlowError('');
+        }
+      })
+      .catch(() => {
+        if (active) setFlowError('Não foi possível carregar os fluxos. Recarregue a página.');
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
 
   useEffect(() => {
     let active = true;
     let pending = false;
+    let legacyDetected = false;
     setError('');
+    if (tab === 'real' && invalidDates)
+      return () => {
+        active = false;
+      };
+    if (tab === 'real') setRefreshingPage(true);
     const refresh = async () => {
       if (pending) return;
       pending = true;
       try {
         if (tab === 'real') {
-          const rows = await api<ExecutionRecord[]>(
-            projectId ? `/projects/${projectId}/executions` : '/executions',
-          );
+          const root = projectId ? `/projects/${projectId}/executions` : '/executions';
+          const params = new URLSearchParams({ page: String(page) });
+          if (workflowId) params.set('workflowId', workflowId);
+          if (statusFilter) params.set('status', statusFilter);
+          const localMidnight = (date: string, followingDay = false) => {
+            const [year, month, day] = date.split('-').map(Number);
+            return new Date(year, month - 1, day + (followingDay ? 1 : 0)).toISOString();
+          };
+          if (fromDate) params.set('from', localMidnight(fromDate));
+          if (toDate) params.set('until', localMidnight(toDate, true));
+          let rows: ExecutionRecord[];
+          let count: number;
+          try {
+            if (legacyDetected) throw new ApiError('Consulta indisponível', 404);
+            const result = await api<{ items: ExecutionRecord[]; total: number; pageSize: number }>(
+              `${root}/search?${params}`,
+            );
+            rows = result.items;
+            count = result.total;
+            if (active) setLegacy(false);
+          } catch (e) {
+            if (!(e instanceof ApiError) || e.status !== 404) throw e;
+            legacyDetected = true;
+            rows = await api<ExecutionRecord[]>(root);
+            count = rows.length;
+            if (active) {
+              setLegacy(true);
+              setWorkflowId(''); setStatusFilter(''); setFromDate(''); setToDate(''); setPage(1);
+            }
+          }
           if (!active) return;
           setRealRuns(rows);
+          setTotal(count);
+          if (!legacyDetected && page > 1 && rows.length === 0 && count > 0) setPage(Math.ceil(count / 20));
           setSelected((current: any) =>
             current?.mode === 'real'
               ? { ...(rows.find((r) => r.id === current.id) ?? current), mode: 'real' }
@@ -345,6 +409,7 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
         if (active) setError((e as Error).message);
       } finally {
         pending = false;
+        if (active) setRefreshingPage(false);
       }
     };
     void refresh();
@@ -353,7 +418,7 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
       active = false;
       clearInterval(timer);
     };
-  }, [tab, projectId]);
+  }, [tab, projectId, workflowId, statusFilter, fromDate, toDate, page, invalidDates]);
 
   const loading = tab === 'real' ? !realRuns && !error : !simRuns && !error;
   if (loading) return <Loading />;
@@ -402,6 +467,93 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
       </div>
       {tab === 'real' && <SystemOptOutRunsCard projectId={projectId} />}
 
+      {tab === 'real' && (
+        <div className="execution-filters" aria-label="Filtros de execuções">
+          <label>
+            Fluxo
+            <select
+              value={workflowId}
+              disabled={legacy || !!flowError}
+              onChange={(e) => {
+                setWorkflowId(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">Todos os fluxos</option>
+              {flows.map((flow) => (
+                <option key={flow.id} value={flow.id}>
+                  {flow.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Estado
+            <select
+              value={statusFilter}
+              disabled={legacy}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+            >
+              <option value="">Todos os estados</option>
+              <option value="QUEUED">Na fila</option>
+              <option value="RUNNING">Em andamento</option>
+              <option value="SUSPENDED">Aguardando</option>
+              <option value="COMPLETED">Concluída</option>
+              <option value="FAILED">Falhou</option>
+            </select>
+          </label>
+          <label>
+            De
+            <input
+              type="date"
+              value={fromDate}
+              disabled={legacy}
+              onChange={(e) => {
+                setFromDate(e.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <label>
+            Até
+            <input
+              type="date"
+              value={toDate}
+              disabled={legacy}
+              onChange={(e) => {
+                setToDate(e.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <button
+            className="btn"
+            disabled={legacy || !(workflowId || statusFilter || fromDate || toDate)}
+            onClick={() => {
+              setWorkflowId('');
+              setStatusFilter('');
+              setFromDate('');
+              setToDate('');
+              setPage(1);
+            }}
+          >
+            Limpar filtros
+          </button>
+          <p>Datas no fuso deste computador. O cartão SAIR abre o próprio histórico.</p>
+          {flowError && <p role="status">{flowError}</p>}
+          {invalidDates && <p role="alert">A data inicial deve ser anterior ou igual à data final.</p>}
+          {legacy && (
+            <p role="status">
+              A API em execução ainda não oferece filtros e paginação. Reinicie a API para ativá-los; esta
+              lista mostra até 50 registros.
+            </p>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="validation-errors" role="alert">
           {error}
@@ -409,7 +561,9 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
       )}
 
       {tab === 'real' ? (
-        realRuns?.length ? (
+        error ? null : refreshingPage && !invalidDates ? (
+          <p role="status">Carregando execuções…</p>
+        ) : invalidDates ? null : realRuns?.length ? (
           <div className="runs-list">
             {realRuns.map((row) => (
               <article className="run-card" key={row.id}>
@@ -417,8 +571,9 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
                   <Zap size={18} />
                 </span>
                 <div>
-                  <h3>{row.leadSummary ? `${row.leadSummary.name} (${row.leadSummary.company})` : row.id}</h3>
+                  <h3>{row.leadSummary ? `${row.leadSummary.name} (${row.leadSummary.company})` : flows.find((flow) => flow.id === row.workflowId)?.name || row.id}</h3>
                   <p>
+                    {row.leadSummary && flows.find((flow) => flow.id === row.workflowId)?.name && `${flows.find((flow) => flow.id === row.workflowId)?.name} · `}
                     {new Date(row.createdAt).toLocaleString('pt-BR')} ·{' '}
                     {row.steps.filter((s) => s.status === 'success' || s.status === 'COMPLETED').length}{' '}
                     etapas concluídas ·{' '}
@@ -426,14 +581,20 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
                   </p>
                 </div>
                 <span
-                  className="success-pill"
+                  className={`success-pill ${row.status === 'FAILED' ? 'execution-failed' : row.status === 'COMPLETED' ? '' : 'execution-pending'}`}
                   style={row.status === 'COMPLETED' ? { background: '#dcfce7', color: '#166534' } : {}}
                 >
                   {row.status === 'COMPLETED'
                     ? 'Concluída'
                     : row.status === 'SUSPENDED'
                       ? 'Aguardando'
-                      : row.status}
+                      : row.status === 'QUEUED'
+                        ? 'Na fila'
+                        : row.status === 'RUNNING'
+                          ? 'Em andamento'
+                          : row.status === 'FAILED'
+                            ? 'Falhou'
+                            : row.status}
                 </span>
                 <Button onClick={() => setSelected({ ...row, mode: 'real' })}>
                   Consultar resultado <ArrowRight size={12} />
@@ -445,8 +606,8 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
           !error && (
             <div className="empty-state">
               <Zap size={32} />
-              <h3>Nenhuma execução real registrada</h3>
-              <p>Envie um lead por webhook ou execute um teste real do processo publicado.</p>
+              <h3>{workflowId || statusFilter || fromDate || toDate ? 'Nenhuma execução encontrada' : 'Nenhuma execução real registrada'}</h3>
+              <p>{workflowId || statusFilter || fromDate || toDate ? 'Altere ou limpe os filtros para consultar outros resultados.' : 'Envie um lead por webhook ou execute um teste real do processo publicado.'}</p>
             </div>
           )
         )
@@ -482,6 +643,24 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
             </Link>
           </div>
         )
+      )}
+
+      {tab === 'real' && !legacy && !invalidDates && !error && (
+        <nav className="execution-pagination" aria-label="Páginas de execuções">
+          <span>
+            {total} {total === 1 ? 'execução' : 'execuções'} · Página {page} de{' '}
+            {Math.max(1, Math.ceil(total / 20))}
+          </span>
+          <Button disabled={page <= 1 || refreshingPage} onClick={() => setPage((value) => value - 1)}>
+            Anterior
+          </Button>
+          <Button
+            disabled={page * 20 >= total || refreshingPage}
+            onClick={() => setPage((value) => value + 1)}
+          >
+            Próxima
+          </Button>
+        </nav>
       )}
 
       {selected && (

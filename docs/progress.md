@@ -1,5 +1,11 @@
 # Progresso
 
+## Histórico de execuções: filtros e paginação (28/10/2026)
+
+- A lista geral e a aba do projeto consultam páginas reais no servidor, com filtros por fluxo, estado e período no fuso do navegador. A consulta respeita a organização da sessão; as rotas antigas continuam disponíveis. O cartão do SAIR consulta o próprio histórico. A tela informa quando a API ativa ainda não implementa a consulta nova e mantém a lista antiga sem filtros.
+- `npm run typecheck`, `npm run lint` e `npm test` passaram (250 testes unitários); `npm run test:integration` passou (134 testes, incluindo isolamento de empresas e descadastro). `npm run test:e2e` passou com 57 testes e um ignorado (arraste exclusivo de desktop). Testes de navegador e capturas `docs/validation/executions-filters-{desktop,mobile}.png` usam `eimax_test` e portas 4001/3001.
+- API, worker, web e gateway existentes não foram reiniciados; a busca nova depende de uma futura atualização da API ativa. Nenhum envio real foi feito.
+
 ## Ajuste no detalhe do bloco (28/10/2026)
 
 - Removido o botão de fechar duplicado dentro do painel de parâmetros; o botão superior do diálogo e Escape continuam disponíveis. O inspetor lateral mantém seu próprio botão.

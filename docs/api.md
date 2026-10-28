@@ -22,6 +22,10 @@ Base `http://127.0.0.1:4000`. O Next encaminha `/api/*` pela mesma origem. Todas
 | POST /opt-outs/:id/resolve | owner/editor | `{decision: CONFIRM\|DISMISS, expectedUpdatedAt}` decide um pedido ambíguo em `REVIEW`; conflito 409 |
 | POST /opt-outs/:id/retry | owner | `{expectedUpdatedAt}` reenfileira uma entrega `FAILED` |
 
+## Busca paginada de execuções
+
+`GET /executions/search` e `GET /projects/:id/executions/search` consultam execuções reais da organização da sessão; a segunda rota também restringe ao projeto. Parâmetros opcionais: `page` (inteiro a partir de 1), `workflowId`, `status` (`QUEUED`, `RUNNING`, `SUSPENDED`, `COMPLETED` ou `FAILED`), `from` e `until` (data e hora ISO 8601 com fuso). O intervalo inclui `from` e exclui `until`. Retornam `{items, total, page, pageSize}` com 20 registros por página, ordenados por criação e ID decrescentes. O navegador traduz os dias escolhidos para o seu fuso local. As rotas antigas permanecem disponíveis.
+
 ## Descadastro central VEXOR → Esfera
 
 Toda mensagem **recebida individual** (os parsers já descartam grupos e mensagens próprias) é classificada pelo texto: `SAIR` e equivalentes curtos viram `OPT_OUT` e entram na outbox `OptOutEvent` com status `PENDING`; frases com intenção de saída misturadas a outros pedidos viram `AMBIGUOUS` e ficam em `REVIEW` até um membro decidir. A chave estável do evento é `whatsapp:<connectionId>:<id do provedor>`; o mesmo webhook reentregue não cria um segundo pedido. O histórico ajuda na correlação, mas não é exigido: a captura ocorre mesmo sem workflow roteado ou com a conexão desabilitada. Um `OPT_OUT` também revoga `whatsappConsent` dos leads da mesma organização com aquele número.

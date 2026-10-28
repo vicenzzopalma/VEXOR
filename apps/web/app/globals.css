@@ -2693,6 +2693,15 @@ button {
 .flow-node .branch-port { bottom: 5px; font-size: 10px; transform: translateX(-50%); }
 .flow-node .n8n-node-label small { color: var(--text-secondary); }
 .flow-node .n8n-node-label { pointer-events: auto; }
+.execution-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 16px; margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.execution-filters label { display: grid; gap: 6px; flex: 1 1 150px; min-width: 0; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.execution-filters input, .execution-filters select { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }
+.execution-filters p { flex: 1 0 100%; margin: 0; color: var(--text-secondary); font-size: 12px; }
+.execution-filters [role="alert"] { color: var(--color-danger); }
+.run-card .execution-failed { color: var(--color-danger); background: var(--surface); }
+.run-card .execution-pending { color: var(--text-secondary); background: var(--surface); }
+.execution-pagination { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
+.execution-pagination span { margin-right: auto; color: var(--text-secondary); font-size: 13px; }
 .dialog-wide:has(.flow-detail) { width: min(1280px, calc(100vw - 26px)); height: min(780px, 89dvh); }
 .dialog-wide:has(.flow-detail) .dialog-content { padding: 0; display: flex; }
 .flow-detail { display: flex; flex-direction: column; min-width: 0; width: 100%; min-height: 0; }

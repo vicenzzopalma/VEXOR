@@ -25,6 +25,7 @@ import { WorkflowService } from './workflow.service';
 import { IngressService } from './ingress.service';
 import {
   executeSchema,
+  executionSearchSchema,
   json,
   loginSchema,
   parse,
@@ -182,6 +183,15 @@ export class WorkflowController {
   @Get('executions')
   allExecutions(@Req() req: AuthorizedRequest) {
     return this.workflows.listExecutions(req.access.organizationId);
+  }
+
+  @Get('executions/search')
+  searchExecutions(@Req() req: AuthorizedRequest, @Query() query: unknown) {
+    return this.workflows.searchExecutions(
+      req.access.organizationId,
+      undefined,
+      parse(executionSearchSchema, query),
+    );
   }
 
   @Get('executions/:id')

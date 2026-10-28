@@ -18,6 +18,7 @@ import {
   registerSchema,
   saveSchema,
   simulateSchema,
+  executionSearchSchema,
 } from './contracts';
 import { processWorkflowExecution } from './runner';
 import { validateConnections, resumeDueExecution } from '@eimax/workflow-runtime';
@@ -255,14 +256,51 @@ export class WorkflowService {
   }
 
   async listExecutions(organizationId: string, workflowId?: string, projectId?: string) {
-    const rows = await this.db.execution.findMany({
-      where: {
+    return this.fetchExecutions(
+      {
         organizationId,
         ...(workflowId ? { workflowId } : {}),
         ...(projectId ? { workflow: { projectId } } : {}),
       },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+      50,
+      0,
+    );
+  }
+
+  async searchExecutions(
+    organizationId: string,
+    projectId: string | undefined,
+    input: z.input<typeof executionSearchSchema>,
+  ) {
+    const where: Prisma.ExecutionWhereInput = {
+      organizationId,
+      ...(projectId ? { workflow: { projectId } } : {}),
+      ...(input.workflowId ? { workflowId: input.workflowId } : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(input.from || input.until
+        ? {
+            createdAt: {
+              ...(input.from ? { gte: new Date(input.from) } : {}),
+              ...(input.until ? { lt: new Date(input.until) } : {}),
+            },
+          }
+        : {}),
+    };
+    const pageSize = 20;
+    const page = input.page ?? 1;
+    const [items, total] = await Promise.all([
+      this.fetchExecutions(where, pageSize, (page - 1) * pageSize),
+      this.db.execution.count({ where }),
+    ]);
+    return { items, total, page, pageSize };
+  }
+
+  private async fetchExecutions(where: Prisma.ExecutionWhereInput, take: number, skip: number) {
+    const rows = await this.db.execution.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take,
+      skip,
       include: {
         checkpoints: {
           orderBy: { suspendedAt: 'asc' },

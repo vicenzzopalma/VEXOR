@@ -22,6 +22,19 @@ export const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
 
 export const saveSchema = z.object({ revision: z.number().int().positive(), draft: workflowSchema }).strict();
 export const revisionSchema = z.object({ revision: z.number().int().positive() }).strict();
+export const executionSearchSchema = z
+  .object({
+    page: z.coerce.number().int().min(1).max(100000).default(1),
+    workflowId: z.string().trim().min(1).max(200).optional(),
+    status: z.enum(['QUEUED', 'RUNNING', 'SUSPENDED', 'COMPLETED', 'FAILED']).optional(),
+    from: z.string().datetime({ offset: true }).optional(),
+    until: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict()
+  .refine((value) => !value.from || !value.until || new Date(value.from) < new Date(value.until), {
+    message: 'A data inicial deve ser anterior à data final.',
+    path: ['until'],
+  });
 export const simulateSchema = z.object({ revision: z.number().int().positive(), lead: leadSchema }).strict();
 
 export const executeSchema = z
