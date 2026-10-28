@@ -170,7 +170,11 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
   const [data, setData] = useState<State>();
   const [error, setError] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const [mode, setMode] = useState<'editor' | 'runs'>('editor');
+  const [mode, setMode] = useState<'editor' | 'runs'>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'runs'
+      ? 'runs'
+      : 'editor',
+  );
   const [busy, setBusy] = useState(false);
   const [role, setRole] = useState('viewer');
   const flow = useRef<ReactFlowInstance<StepNode, Edge> | null>(null);
@@ -642,5 +646,53 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
         </div>
       )}
     </section>
+  );
+}
+
+// Cartão do fluxo do SAIR na página de Execuções: as execuções dele também aparecem ali.
+export function SystemOptOutRunsCard({ projectId }: { projectId?: string }) {
+  const [info, setInfo] = useState<{ id: string; total: number; last: string | null }>();
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const id =
+          projectId ?? (await api<{ id: string; archivedAt: string | null }[]>('/projects')).find((p) => !p.archivedAt)?.id;
+        if (!id) return;
+        const state = await api<State>(`/projects/${id}/system-opt-out`);
+        if (active) setInfo({ id, total: state.events.length, last: state.events[0]?.receivedAt ?? null });
+      } catch {
+        /* sem cartão quando a API não responde; a lista principal mostra o erro */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
+  if (!info) return null;
+  return (
+    <article className="project-flows project-flows-system">
+      <div className="project-flow project-flow-system">
+        <div className="project-flow-name">
+          <Send size={19} aria-hidden="true" />
+          <div>
+            <Link href={`/projetos/${info.id}?tab=descadastro&view=runs`}>Descadastro automático (SAIR)</Link>
+            <span>
+              Fluxo do sistema · {info.total} {info.total === 1 ? 'execução recente' : 'execuções recentes'}
+              {info.last ? ` · última em ${when(info.last)}` : ''}
+            </span>
+          </div>
+        </div>
+        <span className="project-status project-status-published">
+          <LockKeyhole size={11} aria-hidden="true" /> Sistema
+        </span>
+        <div className="project-flow-actions">
+          <span className="flow-active">Ativo</span>
+          <Link className="btn" href={`/projetos/${info.id}?tab=descadastro&view=runs`}>
+            Ver execuções
+          </Link>
+        </div>
+      </div>
+    </article>
   );
 }

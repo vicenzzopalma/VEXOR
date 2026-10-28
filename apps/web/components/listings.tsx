@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { SystemOptOutRunsCard } from './system-opt-out';
 import Link from 'next/link';
 import {
   ArrowRight,
@@ -399,6 +400,7 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
           Simulações
         </button>
       </div>
+      {tab === 'real' && <SystemOptOutRunsCard projectId={projectId} />}
 
       {error && (
         <div className="validation-errors" role="alert">
