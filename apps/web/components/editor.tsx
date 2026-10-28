@@ -1082,6 +1082,7 @@ function EditorWorkspace({ id }: { id: string }) {
                   node={detailNode}
                   workflow={flow}
                   readOnly={readOnly}
+                  showClose={false}
                   onClose={() => setDetailNodeId(undefined)}
                   onUpdate={(node) =>
                     change((f) => ({ ...f, nodes: f.nodes.map((n) => (n.id === node.id ? node : n)) }))

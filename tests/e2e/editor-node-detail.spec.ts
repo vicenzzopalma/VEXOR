@@ -51,6 +51,8 @@ test('detalhe do bloco edita parâmetros e apresenta dados de uma execução sel
   await node.getByRole('button', { name: /Abrir detalhes/ }).focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog', { name: /Detalhes do bloco/ });
+  await expect(dialog.getByRole('button', { name: 'Fechar janela' })).toHaveCount(1);
+  await expect(dialog.getByRole('button', { name: 'Fechar propriedades' })).toHaveCount(0);
   await expect(dialog.getByRole('region', { name: 'Entrada' })).toContainText('"score": 42');
   await expect(dialog.getByRole('region', { name: 'Saída' })).toContainText('"branch": "true"');
   await expect(dialog).toContainText('versão publicada');

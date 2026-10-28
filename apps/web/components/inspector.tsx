@@ -14,6 +14,7 @@ type Props = {
   onDuplicate: () => void;
   onClose: () => void;
   readOnly?: boolean;
+  showClose?: boolean;
 };
 export function Inspector({
   node,
@@ -23,6 +24,7 @@ export function Inspector({
   onDuplicate,
   onClose,
   readOnly = false,
+  showClose = true,
 }: Props) {
   const [accounts, setAccounts] = useState<
     Array<{
@@ -77,9 +79,11 @@ export function Inspector({
     <aside className="inspector" aria-label="Propriedades do bloco">
       <div className="panel-heading">
         <h2>Propriedades do bloco</h2>
-        <button className="icon-btn" aria-label="Fechar propriedades" onClick={onClose}>
-          <X size={16} />
-        </button>
+        {showClose && (
+          <button className="icon-btn" aria-label="Fechar propriedades" onClick={onClose}>
+            <X size={16} />
+          </button>
+        )}
       </div>
       <div className="inspector-scroll">
         <div className="inspector-block">

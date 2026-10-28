@@ -1,5 +1,10 @@
 # Progresso
 
+## Ajuste no detalhe do bloco (28/10/2026)
+
+- Removido o botão de fechar duplicado dentro do painel de parâmetros; o botão superior do diálogo e Escape continuam disponíveis. O inspetor lateral mantém seu próprio botão.
+- `npm run test:e2e -- tests/e2e/editor-node-detail.spec.ts`: dois testes aprovados em desktop e celular, no banco isolado `eimax_test`. Capturas atualizadas em `docs/validation/editor-node-detail-{desktop,mobile}.png`.
+
 ## Pesquisa de paridade e detalhe do editor (28/10/2026)
 
 - Fase 2: matriz em `docs/research/n8n-rea/05-matriz-paridade.md`, baseada na pesquisa já existente e no inventário local. A evidência REA `ev_c5dcac785c2d39c7c783ca6fd51c72d5df33463cc6b6e9dda625167652771153` foi adicionada ao ledger; o resultado completo permanece fora do Git em `D:/VEXOR/_ref/n8n/evidence/editor-rundata-rea.json`. O levantamento é clean-room e não reivindica observação de comportamento executado.
