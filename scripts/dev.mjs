@@ -1,7 +1,7 @@
 import 'dotenv/config';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
-import { closeSync, existsSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { startDatabase } from './database.mjs';
 import { loadDevelopmentSessions } from './development-sessions.mjs';
 import {
@@ -116,15 +116,23 @@ try {
     // Fail closed: if quarantined sessions cannot be pinned offline, do not start the gateway.
     const pinned = await closeQuarantinedInstances(localWhatsApp);
     if (pinned) console.log(`Sessões em quarentena mantidas offline: ${pinned}.`);
-    const log = openSync(resolve('.local/whatsapp-service.log'), 'a', 0o600);
-    const gateway = run(entry, [], {
+    // Use independent pipes on Windows. Passing one raw file descriptor as both stdout and
+    // stderr can prevent child handle inheritance; the standalone launcher uses separate pipes.
+    const log = createWriteStream(resolve('.local/whatsapp-service.log'), { flags: 'a', mode: 0o600 });
+    const gateway = spawn(process.execPath, [entry], {
       cwd: localWhatsAppDirectory,
       env: localWhatsAppProcessEnvironment(localWhatsApp),
-      stdio: ['ignore', log, log],
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    closeSync(log);
+    gateway.stdout?.on('data', (chunk) => log.write(chunk));
+    gateway.stderr?.on('data', (chunk) => log.write(chunk));
+    gateway.on('close', () => log.end());
     children.push(gateway);
-    gateway.on('error', () => void stop(1, 'Falha ao iniciar serviço WhatsApp local'));
+    gateway.on('error', (error) => {
+      console.error('[dev.mjs] Não foi possível iniciar o gateway WhatsApp:', error);
+      void stop(1, 'Falha ao iniciar serviço WhatsApp local');
+    });
     gateway.on('exit', (code) => {
       if (!stopping)
         void stop(code ?? 1, 'Serviço WhatsApp local encerrou; consulte .local/whatsapp-service.log');

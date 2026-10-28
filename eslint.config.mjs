@@ -7,6 +7,7 @@ export default ts.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/.next/**',
+      '**/.next-test/**',
       '**/next-env.d.ts',
       '.local/**',
       'playwright-report/**',

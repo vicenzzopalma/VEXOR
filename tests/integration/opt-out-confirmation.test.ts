@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, afterEach, afterAll, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import { ConnectorError, sealSecrets, type Transport } from '@eimax/connectors';
@@ -9,6 +10,9 @@ import {
   dispatchNextOptOutConfirmation,
   dispatchNextOptOut,
 } from '@eimax/workflow-runtime';
+// Runtime packages are loaded as CommonJS. Use its actual error constructor for transport
+// fixtures so instanceof behaves like the real connector under Vitest's module isolation.
+const RuntimeConnectorError: typeof ConnectorError = createRequire(import.meta.url)('@eimax/connectors').ConnectorError;
 const db = new PrismaClient();
 const sessions = JSON.parse(readFileSync('.local/development-sessions.json', 'utf8'));
 beforeAll(async () => {
@@ -127,7 +131,7 @@ it('rejeição explícita faz backoff; timeout incerto não é reenviado', async
   });
   const reject: Transport = async (_url, method) => {
     if (method === 'GET') return { instance: { state: 'open' } };
-    throw new ConnectorError('PROVIDER_HTTP_429');
+    throw new RuntimeConnectorError('PROVIDER_HTTP_429');
   };
   const retry = await dispatchNextOptOutConfirmation(db, reject);
   expect(retry?.status).toBe('PENDING');
@@ -135,7 +139,7 @@ it('rejeição explícita faz backoff; timeout incerto não é reenviado', async
   await db.optOutConfirmation.update({ where: { id: retry!.id }, data: { availableAt: new Date(0) } });
   const uncertain: Transport = async (_url, method) => {
     if (method === 'GET') return { instance: { state: 'open' } };
-    throw new ConnectorError('PROVIDER_TIMEOUT');
+    throw new RuntimeConnectorError('PROVIDER_TIMEOUT');
   };
   expect((await dispatchNextOptOutConfirmation(db, uncertain))?.status).toBe('FAILED');
   expect(await dispatchNextOptOutConfirmation(db, uncertain)).toBeNull();

@@ -77,6 +77,17 @@ const saveLabels = {
   error: 'Tentar salvar',
   conflict: 'Conflito de edição',
 };
+const stepStatusLabel = (status: string) =>
+  ({
+    success: 'Concluída',
+    failed: 'Falhou',
+    skipped: 'Não executada',
+    COMPLETED: 'Concluída',
+    FAILED: 'Falhou',
+    QUEUED: 'Na fila',
+    RUNNING: 'Em andamento',
+    SUSPENDED: 'Aguardando',
+  })[status] ?? status;
 const uid = () => crypto.randomUUID();
 export function Editor({ id }: { id: string }) {
   return (
@@ -101,6 +112,8 @@ function EditorWorkspace({ id }: { id: string }) {
   const [category, setCategory] = useState('Todos');
   const [library, setLibrary] = useState(false);
   const [inspector, setInspector] = useState(true);
+  const [detailNodeId, setDetailNodeId] = useState<string>();
+  const [detailSource, setDetailSource] = useState('');
   const [modal, setModal] = useState<'simulate' | 'publish' | 'versions' | 'help' | undefined>();
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
@@ -197,6 +210,19 @@ function EditorWorkspace({ id }: { id: string }) {
   }, [state.saveStatus, state.save, state.setError, router]);
   const issues = useMemo(() => (flow ? validateWorkflow(flow) : []), [flow]);
   const activeNode = flow?.nodes.find((n) => n.id === selected[0]);
+  const detailNode = flow?.nodes.find((n) => n.id === detailNodeId);
+  const detailRun = detailSource === 'simulation' ? run : realRuns.find((item) => item.id === detailSource);
+  const detailStep = detailRun?.steps.find((step) => step.nodeId === detailNodeId);
+  const openNode = useCallback(
+    (nodeId: string) => {
+      setSelected([nodeId]);
+      setSelectedEdges([]);
+      setInspector(true);
+      setDetailNodeId(nodeId);
+      setDetailSource(run ? 'simulation' : (realRuns[0]?.id ?? ''));
+    },
+    [run, realRuns],
+  );
   const nodes: FlowNode[] = useMemo(
     () =>
       (flow?.nodes ?? []).map((block) => ({
@@ -208,10 +234,11 @@ function EditorWorkspace({ id }: { id: string }) {
           block,
           execution: execution[block.id],
           invalid: !configSchemas[block.type].safeParse(block.config).success,
+          onOpen: () => openNode(block.id),
         },
         selected: selected.includes(block.id),
       })),
-    [flow, selected, execution, dimensions],
+    [flow, selected, execution, dimensions, openNode],
   );
   const edges: Edge[] = useMemo(
     () =>
@@ -810,10 +837,13 @@ function EditorWorkspace({ id }: { id: string }) {
               onConnect={connect}
               onReconnect={reconnect}
               onNodeClick={(event, node) => {
-                if (!event.shiftKey) setSelected([node.id]);
+                if (!event.shiftKey) {
+                  setSelected([node.id]);
+                }
                 setSelectedEdges([]);
                 setInspector(true);
               }}
+              onNodeDoubleClick={(_, node) => openNode(node.id)}
               onEdgesChange={(changes) => {
                 const selections = changes.filter((c) => c.type === 'select');
                 if (selections.length)
@@ -982,7 +1012,7 @@ function EditorWorkspace({ id }: { id: string }) {
           )}
           {run && showRun && <RunLog run={run} onClose={() => setShowRun(false)} />}
         </div>
-        {inspector && (
+        {inspector && !detailNode && (
           <Inspector
             node={activeNode}
             workflow={flow}
@@ -996,6 +1026,93 @@ function EditorWorkspace({ id }: { id: string }) {
           />
         )}
       </div>
+      {detailNode && (
+        <Dialog
+          title={`Detalhes do bloco: ${detailNode.name}`}
+          wide
+          onClose={() => setDetailNodeId(undefined)}
+        >
+          <div className="flow-detail">
+            <div className="flow-detail-source">
+              <label htmlFor="flow-detail-source">Dados da etapa</label>
+              <select
+                id="flow-detail-source"
+                value={detailSource}
+                onChange={(event) => setDetailSource(event.target.value)}
+              >
+                <option value="">Nenhuma execução selecionada</option>
+                {run && (
+                  <option value="simulation">
+                    Simulação desta sessão · {new Date(run.createdAt).toLocaleString('pt-BR')}
+                  </option>
+                )}
+                {realRuns.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    Execução real · {new Date(item.createdAt).toLocaleString('pt-BR')} ·{' '}
+                    {stepStatusLabel(item.status)}
+                  </option>
+                ))}
+              </select>
+              {detailRun && detailSource === 'simulation' && (
+                <p>
+                  Os dados refletem o fluxo no momento da simulação e podem diferir das alterações
+                  posteriores.
+                </p>
+              )}
+              {detailRun && detailSource !== 'simulation' && (
+                <p>
+                  Os dados pertencem à versão publicada usada na execução e podem diferir do rascunho atual.
+                </p>
+              )}
+            </div>
+            <div className="flow-detail-grid">
+              <section className="flow-detail-data" aria-label="Entrada">
+                <h3>Entrada</h3>
+                {detailStep && detailStep.input != null ? (
+                  <pre>{JSON.stringify(detailStep.input, null, 2)}</pre>
+                ) : (
+                  <p>
+                    Sem entrada registrada para este bloco. Execute uma simulação ou selecione uma execução.
+                  </p>
+                )}
+              </section>
+              <section className="flow-detail-parameters" aria-label="Parâmetros">
+                <h3>Parâmetros</h3>
+                <Inspector
+                  node={detailNode}
+                  workflow={flow}
+                  readOnly={readOnly}
+                  onClose={() => setDetailNodeId(undefined)}
+                  onUpdate={(node) =>
+                    change((f) => ({ ...f, nodes: f.nodes.map((n) => (n.id === node.id ? node : n)) }))
+                  }
+                  onDelete={() => {
+                    remove();
+                    setDetailNodeId(undefined);
+                  }}
+                  onDuplicate={() => {
+                    duplicate();
+                    setDetailNodeId(undefined);
+                  }}
+                />
+              </section>
+              <section className="flow-detail-data" aria-label="Saída">
+                <h3>Saída</h3>
+                {detailStep && detailStep.output != null ? (
+                  <>
+                    <p>
+                      Estado: {stepStatusLabel(detailStep.status)} · {detailStep.durationMs} ms
+                    </p>
+                    <pre>{JSON.stringify(detailStep.output, null, 2)}</pre>
+                  </>
+                ) : (
+                  <p>Sem saída registrada para este bloco nesta execução.</p>
+                )}
+              </section>
+            </div>
+          </div>
+        </Dialog>
+      )}
       <footer className="editor-statusbar">
         <span>
           <span className="status-dot green" />

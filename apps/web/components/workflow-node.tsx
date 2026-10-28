@@ -1,9 +1,12 @@
 'use client';
 import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { Check, AlertCircle, LoaderCircle } from 'lucide-react';
+import { Check, AlertCircle, LoaderCircle, Zap } from 'lucide-react';
 import { catalog, triggerTypes, type WorkflowNode } from '@eimax/workflow-schema';
 import { blockIcons } from './icons';
-export type FlowNode = Node<{ block: WorkflowNode; execution?: string; invalid?: boolean }, 'workflow'>;
+export type FlowNode = Node<
+  { block: WorkflowNode; execution?: string; invalid?: boolean; onOpen?: () => void },
+  'workflow'
+>;
 export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
   const node = data.block;
   const meta = catalog[node.type];
@@ -35,20 +38,23 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
                   : 'Quando um lead chegar';
   return (
     <div
-      className={`workflow-node ${selected ? 'is-selected' : ''} ${data.invalid ? 'is-invalid' : ''} execution-${data.execution ?? 'idle'}`}
+      className={`n8n-node flow-node ${trigger ? 'is-trigger' : ''} ${selected ? 'is-selected' : ''} ${data.invalid ? 'is-invalid' : ''} execution-${data.execution ?? 'idle'}`}
       data-testid={`block-${node.id}`}
     >
       {!trigger && <Handle type="target" position={Position.Top} aria-label={`Entrada de ${node.name}`} />}
-      <div className="node-type">
-        <span className={`color-${meta.color}`}>
-          {trigger
-            ? 'GATILHO'
-            : node.type === 'condition'
-              ? 'CONDIÇÃO'
-              : node.type === 'wait'
-                ? 'CONTROLE'
-                : 'AÇÃO'}
-        </span>
+      {trigger && <Zap className="n8n-trigger-bolt" size={15} aria-hidden="true" />}
+      <button
+        type="button"
+        className="flow-node-open"
+        aria-label={`Abrir detalhes de ${node.name}`}
+        onClick={(event) => {
+          event.stopPropagation();
+          data.onOpen?.();
+        }}
+      >
+        <Icon className={`color-${meta.color}`} size={40} strokeWidth={1.6} aria-hidden="true" />
+      </button>
+      <span className="flow-node-state">
         {data.execution === 'running' ? (
           <LoaderCircle size={12} className="spin" />
         ) : data.execution === 'success' ? (
@@ -56,14 +62,11 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
         ) : data.invalid ? (
           <AlertCircle size={13} className="danger-text" />
         ) : null}
-      </div>
-      <div className="node-main">
-        <span className={`block-icon color-${meta.color}`}>
-          <Icon size={19} />
-        </span>
+      </span>
+      <div className="n8n-node-label">
         <strong>{node.name}</strong>
+        <small>{summary}</small>
       </div>
-      <div className="node-summary">{summary}</div>
       {node.type === 'condition' ? (
         <>
           <Handle
