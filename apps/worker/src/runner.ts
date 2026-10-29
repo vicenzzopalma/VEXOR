@@ -8,4 +8,5 @@ export {
   dispatchNextOptOut,
   dispatchNextOptOutConfirmation,
   activateOptOutConfirmations,
+  dispatchNextProvisioning,
 } from '@eimax/workflow-runtime';

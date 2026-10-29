@@ -1,4 +1,6 @@
 import {
+  buildOnboardingPlan,
+  parseAdmissionEmail,
   configSchemas,
   leadSchema,
   validateWorkflow,
@@ -21,6 +23,7 @@ const actionErrors: Record<string, string> = {
   WHATSAPP_TEMPLATE_REQUIRED: 'A janela de atendimento terminou. Use um template aprovado.',
   WAIT_NOT_CONFIGURED: 'Espera durável ainda não disponível para execução real.',
   WAIT_INVALID_DATE: 'A data da espera deve ser válida e estar no futuro.',
+  PROVISIONING_EMPTY: 'Nenhum colaborador encontrado no texto do e-mail (lead.message).',
 };
 
 export function evaluateCondition(config: Record<string, unknown>, lead: Lead): boolean {
@@ -122,6 +125,20 @@ export function simulateAction(
         output: { simulated: true, connectionId: c.connectionId },
         message: 'Mensagem WhatsApp simulada. Nenhum envio realizado.',
       };
+    case 'ti.onboarding.plan': {
+      const plan = buildOnboardingPlan(parseAdmissionEmail(lead.message ?? ''));
+      return {
+        output: {
+          simulated: true,
+          colaboradores: plan.items.length,
+          perguntas: plan.questions.length,
+          avisos: plan.warnings.length,
+        },
+        message: plan.items.length
+          ? `Plano simulado para ${plan.items.length} colaborador(es). Nada foi criado.`
+          : 'Nenhum colaborador encontrado em lead.message.',
+      };
+    }
   }
 }
 
@@ -161,6 +178,12 @@ export interface ProductionEffectHandlers {
     message: string;
     lead: Lead;
   }) => Promise<{ delivered?: boolean; notificationId?: string }>;
+  /** Persiste o plano como solicitação aguardando aprovação; a execução real é do worker. */
+  requestProvisioning?: (params: {
+    title: string;
+    plan: ReturnType<typeof buildOnboardingPlan>;
+    nodeId: string;
+  }) => Promise<{ requestId: string }>;
 }
 
 export function createProductionEffects(handlers: ProductionEffectHandlers = {}): EffectAdapter {
@@ -266,6 +289,21 @@ export function createProductionEffects(handlers: ProductionEffectHandlers = {})
             };
           }
           throw new Error('Adapter de notificações não configurado.');
+        }
+        case 'ti.onboarding.plan': {
+          if (!handlers.requestProvisioning) throw new Error('Provisionamento de TI não configurado.');
+          const plan = buildOnboardingPlan(parseAdmissionEmail(lead.message ?? ''));
+          if (!plan.items.length) throw new Error('PROVISIONING_EMPTY');
+          const res = await handlers.requestProvisioning({ title: c.title, plan, nodeId: node.id });
+          return {
+            output: {
+              requestId: res.requestId,
+              colaboradores: plan.items.length,
+              perguntas: plan.questions.length,
+              status: 'PENDING_APPROVAL',
+            },
+            message: 'Plano criado; aguardando aprovação humana em Provisionamento.',
+          };
         }
       }
     },

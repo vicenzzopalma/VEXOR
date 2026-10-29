@@ -11,6 +11,7 @@ import { OptOutService } from './opt-out.service';
 import { OptOutController } from './opt-out.controller';
 import { ProjectController } from './project.controller';
 import { ProjectService } from './project.service';
+import { ProvisioningController } from './provisioning.controller';
 
 @Module({
   controllers: [
@@ -19,6 +20,7 @@ import { ProjectService } from './project.service';
     IntegrationController,
     OptOutController,
     ProjectController,
+    ProvisioningController,
   ],
   providers: [
     WorkflowService,

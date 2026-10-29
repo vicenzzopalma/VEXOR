@@ -8,6 +8,7 @@ import {
   dispatchNextOptOutConfirmation,
   activateOptOutConfirmations,
   processNextWhatsAppEvent,
+  dispatchNextProvisioning,
 } from './runner';
 export * from './runner';
 
@@ -34,7 +35,8 @@ export async function startWorkerLoop(prisma: PrismaClient, pollIntervalMs = 500
         const result = await runNextExecution(prisma);
         const delivery = await dispatchNextWhatsApp(prisma);
         const email = await dispatchNextEmail(prisma);
-        if (incoming || result || delivery || email || optOut) continue;
+        const provisioning = await dispatchNextProvisioning(prisma);
+        if (incoming || result || delivery || email || optOut || provisioning) continue;
       } catch {
         console.error('Worker: falha de banco; a reserva será recuperada pelo lease.');
       }

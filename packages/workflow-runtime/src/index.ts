@@ -415,6 +415,31 @@ export async function processReservedExecution(prisma: PrismaClient, job: Reserv
             });
             return { notificationId: notification.id };
           },
+          // Database only: the plan waits for a person. Network effects run in dispatchNextProvisioning.
+          requestProvisioning: async ({ title, plan, nodeId }) => {
+            const request = await tx.provisioningRequest.create({
+              data: {
+                organizationId,
+                executionId: execution.id,
+                nodeId,
+                title,
+                plan: plan as unknown as Prisma.InputJsonValue,
+              },
+            });
+            await tx.notification.create({
+              data: {
+                organizationId,
+                leadId,
+                executionId: execution.id,
+                channel: 'INTERNAL',
+                recipient: 'organization:owners',
+                title: 'Aprovação de TI necessária',
+                message: `${title}: ${plan.items.length} colaborador(es), ${plan.questions.length} pergunta(s) pendente(s).`,
+                status: 'AVAILABLE',
+              },
+            });
+            return { requestId: request.id };
+          },
           sendEmail: async ({ to, subject, body, connectionId, nodeId }) => {
             if (connectionId) {
               const connection = await tx.integrationConnection.findFirst({
@@ -753,6 +778,7 @@ export {
   activateOptOutConfirmations,
 } from './opt-out';
 export { dispatchNextEmail } from './delivery';
+export { dispatchNextProvisioning, PROVISIONING_LEASE_MS } from './provisioning';
 export {
   dispatchNextOptOut,
   captureOptOutInTransaction,

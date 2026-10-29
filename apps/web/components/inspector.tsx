@@ -443,6 +443,22 @@ export function Inspector({
               />
             </label>
           )}
+          {node.type === 'ti.onboarding.plan' && (
+            <>
+              <label className="field">
+                Título da solicitação
+                <input
+                  value={String(c.title ?? '')}
+                  onChange={(e) => field('title', e.target.value)}
+                  maxLength={200}
+                />
+              </label>
+              <p className="field-helper">
+                Lê o e-mail do DP em lead.message. Nada é criado aqui: o plano (e-mail, encaminhador e ramal)
+                aguarda aprovação em Provisionamento e só então o worker executa.
+              </p>
+            </>
+          )}
           {node.type === 'manager.notify' && (
             <VariableInput
               key={`${node.id}-message`}

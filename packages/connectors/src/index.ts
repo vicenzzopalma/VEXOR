@@ -17,6 +17,7 @@ export * from './contracts';
 export * from './whatsapp-events';
 export * from './managed-evolution';
 export * from './opt-out';
+export * from './ti-provisioning';
 import { OPT_OUT_CONFIRMATION_TEXT, optOutConfirmationPolicy } from './opt-out';
 
 export type ConnectionState =

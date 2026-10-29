@@ -84,6 +84,15 @@ process.on('unhandledRejection', (reason) => {
 try {
   await waitForPreviousRun();
   writeFileSync(lockPath, String(process.pid));
+  // The runtime package compiles against the generated Prisma client: generate first, so a fresh
+  // clone (no node_modules/.prisma yet) builds on the first run.
+  await finish(
+    run('node_modules/prisma/build/index.js', [
+      'generate',
+      '--schema',
+      'packages/database/prisma/schema.prisma',
+    ]),
+  );
   await finish(
     run('node_modules/typescript/bin/tsc', [
       '-b',
@@ -91,13 +100,6 @@ try {
       'packages/workflow-engine',
       'packages/workflow-runtime',
       'packages/connectors',
-    ]),
-  );
-  await finish(
-    run('node_modules/prisma/build/index.js', [
-      'generate',
-      '--schema',
-      'packages/database/prisma/schema.prisma',
     ]),
   );
   if (process.env.USE_EXTERNAL_DATABASE !== 'true') pg = await startDatabase();
@@ -167,7 +169,7 @@ try {
   let ready = false;
   for (let attempt = 0; attempt < 120; attempt++) {
     try {
-      if ((await fetch('http://127.0.0.1:4000/health')).ok) {
+      if ((await fetch(`http://127.0.0.1:${process.env.API_PORT ?? 4000}/health`)).ok) {
         ready = true;
         break;
       }
@@ -183,7 +185,8 @@ try {
     });
     children.push(worker);
   }
-  const web = run('node_modules/next/dist/bin/next', ['dev', '--hostname', '127.0.0.1', '--port', '3000'], {
+  const webPort = process.env.WEB_PORT ?? '3000';
+  const web = run('node_modules/next/dist/bin/next', ['dev', '--hostname', '127.0.0.1', '--port', webPort], {
     cwd: resolve('apps/web'),
   });
   web.on('error', (err) => console.error('[dev.mjs] Erro ao disparar Web:', err));
@@ -191,7 +194,7 @@ try {
     if (!stopping) stop(code ?? 1, `Web (Next.js) encerrou com code=${code}, signal=${signal}`);
   });
   children.push(web);
-  console.log('VEXOR: http://localhost:3000 — ambiente local, sem envios externos.');
+  console.log(`VEXOR: http://localhost:${webPort} — ambiente local, sem envios externos.`);
   await new Promise(() => {});
 } catch (error) {
   console.error(error?.message ?? 'Falha ao iniciar o ambiente local. Verifique .local/postgres.log.');

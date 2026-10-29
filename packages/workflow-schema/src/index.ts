@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isAllowedVariable, stepVariables, templateParts } from './variables';
 export * from './variables';
+export * from './ti';
 
 export const blockTypes = [
   'lead.created',
@@ -17,6 +18,7 @@ export const blockTypes = [
   'whatsapp.template.send',
   'whatsapp.sdr.notify',
   'whatsapp.lead.update',
+  'ti.onboarding.plan',
 ] as const;
 export type BlockType = (typeof blockTypes)[number];
 export const catalog: Record<
@@ -125,6 +127,13 @@ export const catalog: Record<
     color: 'orange',
     defaults: { message: 'Uma nova oportunidade foi qualificada.' },
   },
+  'ti.onboarding.plan': {
+    name: 'Planejar admissão (TI)',
+    description: 'Leia o e-mail do DP e peça aprovação para e-mail, encaminhador e ramal',
+    category: 'TI',
+    color: 'purple',
+    defaults: { title: 'Admissão de colaboradores' },
+  },
 };
 
 const shortText = z.string().trim().min(1, 'Preencha este campo.').max(200);
@@ -228,6 +237,7 @@ export const configSchemas: Record<BlockType, z.ZodTypeAny> = {
   wait: waitConfigSchema,
   'tag.add': z.object({ tag: z.string().trim().min(1).max(60) }).strict(),
   'manager.notify': z.object({ message: z.string().trim().min(1).max(1000) }).strict(),
+  'ti.onboarding.plan': z.object({ title: shortText }).strict(),
 };
 
 export const nodeSchema = z
@@ -260,7 +270,11 @@ export type WorkflowNode = z.infer<typeof nodeSchema>;
 export type WorkflowEdge = z.infer<typeof edgeSchema>;
 export type Workflow = z.infer<typeof workflowSchema>;
 /** `code` marca problemas que a simulação parcial ("Testar até este bloco") pode ignorar. */
-export type ValidationIssue = { nodeId?: string; message: string; code?: 'DISCONNECTED' | 'CONDITION_BRANCHES' };
+export type ValidationIssue = {
+  nodeId?: string;
+  message: string;
+  code?: 'DISCONNECTED' | 'CONDITION_BRANCHES';
+};
 export const triggerTypes: readonly string[] = [
   'lead.created',
   'webhook.received',
@@ -410,6 +424,44 @@ export function createSdrTemplate(): Workflow {
       { id: 'e3', source: 'qualify', target: 'nurture', branch: 'false' },
       { id: 'e4', source: 'assign', target: 'tag' },
       { id: 'e5', source: 'tag', target: 'notify' },
+    ],
+  };
+}
+
+/** Admissão (TI): o texto do e-mail do DP chega em lead.message pelo webhook. */
+export function createTiOnboardingTemplate(): Workflow {
+  return {
+    schemaVersion: 1,
+    name: 'Admissão de colaboradores (TI)',
+    nodes: [
+      {
+        id: 'trigger',
+        type: 'webhook.received',
+        name: 'E-mail de admissão do DP',
+        description: 'O texto do e-mail chega em lead.message.',
+        position: { x: 40, y: 180 },
+        config: { credentialRef: 'ingress' },
+      },
+      {
+        id: 'plan',
+        type: 'ti.onboarding.plan',
+        name: 'Planejar admissão (TI)',
+        description: 'E-mail, encaminhador e ramal aguardam aprovação humana.',
+        position: { x: 280, y: 180 },
+        config: { title: 'Admissão de colaboradores' },
+      },
+      {
+        id: 'notify',
+        type: 'manager.notify',
+        name: 'Avisar a TI',
+        description: '',
+        position: { x: 520, y: 180 },
+        config: { message: 'Nova admissão aguardando aprovação em Provisionamento.' },
+      },
+    ],
+    edges: [
+      { id: 'e1', source: 'trigger', target: 'plan' },
+      { id: 'e2', source: 'plan', target: 'notify' },
     ],
   };
 }

@@ -12,6 +12,7 @@ import {
   Plug,
   Folder,
   ArrowRight,
+  ServerCog,
 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { Dialog } from './ui';
@@ -75,6 +76,7 @@ export function Shell({ children }: { children: ReactNode }) {
             { href: '/leads', icon: Users, label: 'Leads' },
             { href: '/execucoes', icon: History, label: 'Execuções' },
             { href: '/integracoes', icon: Plug, label: 'Integrações' },
+            { href: '/provisionamento', icon: ServerCog, label: 'Provisionamento' },
           ].map(({ href, icon: Icon, label }) => (
             <Link
               key={href}

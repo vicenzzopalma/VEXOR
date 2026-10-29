@@ -1,4 +1,3 @@
-
 import EmbeddedPostgres from 'embedded-postgres';
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -15,13 +14,15 @@ const execute = (file, args) =>
   });
 
 export async function startDatabase() {
+  // Outra instância na mesma máquina (ex.: servidor) usa POSTGRES_PORT e DATABASE_URL próprios.
+  const port = Number(process.env.POSTGRES_PORT ?? 55432);
   const databaseDir = resolve('.local/postgres');
   mkdirSync(resolve('.local'), { recursive: true });
   const pg = new EmbeddedPostgres({
     databaseDir,
     user: 'eimax',
     password: 'eimax_local_only',
-    port: 55432,
+    port,
     persistent: true,
     postgresFlags: ['-h', '127.0.0.1'],
     initdbFlags: ['--encoding=UTF8', '--locale=C'],
@@ -48,7 +49,7 @@ export async function startDatabase() {
         '-l',
         resolve('.local/postgres.log'),
         '-o',
-        '-h 127.0.0.1 -p 55432',
+        `-h 127.0.0.1 -p ${port}`,
         '-w',
         '-t',
         '30',
@@ -60,7 +61,7 @@ export async function startDatabase() {
   const result = await client.query("SELECT 1 FROM pg_database WHERE datname='eimax'");
   if (!result.rows.length) await client.query('CREATE DATABASE eimax');
   await client.end();
-  console.log('PostgreSQL local pronto em 127.0.0.1:55432.');
+  console.log(`PostgreSQL local pronto em 127.0.0.1:${port}.`);
   return {
     stop: async () => {
       if (process.platform === 'win32')

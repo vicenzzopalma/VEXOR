@@ -19,7 +19,7 @@ interface HttpResponse {
   setHeader(name: string, value: string): void;
 }
 import { z } from 'zod';
-import { createSdrTemplate } from '@eimax/workflow-schema';
+import { createSdrTemplate, createTiOnboardingTemplate } from '@eimax/workflow-schema';
 import { DevelopmentGuard } from './development.guard';
 import { WorkflowService } from './workflow.service';
 import { IngressService } from './ingress.service';
@@ -101,13 +101,14 @@ export class WorkflowController {
   @Roles('owner', 'editor')
   async create(@Body() body: unknown, @Req() req: AuthorizedRequest) {
     const input = parse(
-      z.object({ template: z.literal('sdr'), name: z.string().trim().min(1).max(200) }).strict(),
+      z.object({ template: z.enum(['sdr', 'ti']), name: z.string().trim().min(1).max(200) }).strict(),
       body,
     );
+    const template = input.template === 'ti' ? createTiOnboardingTemplate() : createSdrTemplate();
     return this.workflows.db.workflow.create({
       data: {
         organizationId: req.access.organizationId,
-        draft: json({ ...createSdrTemplate(), name: input.name }),
+        draft: json({ ...template, name: input.name }),
       },
     });
   }
@@ -128,13 +129,23 @@ export class WorkflowController {
   @Post('workflows/:id/activate')
   @Roles('owner', 'editor')
   activate(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
-    return this.workflows.setActive(id, req.access.organizationId, parse(activationSchema, body).activationRevision, true);
+    return this.workflows.setActive(
+      id,
+      req.access.organizationId,
+      parse(activationSchema, body).activationRevision,
+      true,
+    );
   }
 
   @Post('workflows/:id/deactivate')
   @Roles('owner', 'editor')
   deactivate(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
-    return this.workflows.setActive(id, req.access.organizationId, parse(activationSchema, body).activationRevision, false);
+    return this.workflows.setActive(
+      id,
+      req.access.organizationId,
+      parse(activationSchema, body).activationRevision,
+      false,
+    );
   }
 
   @Post('workflows/:id/archive')

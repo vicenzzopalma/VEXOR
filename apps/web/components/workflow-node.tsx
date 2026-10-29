@@ -80,7 +80,9 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
                 ? 'Notificação para o gestor'
                 : node.type === 'webhook.received'
                   ? 'Entrada autenticada · fase 2'
-                  : 'Quando um lead chegar';
+                  : node.type === 'ti.onboarding.plan'
+                    ? 'Plano de TI com aprovação humana'
+                    : 'Quando um lead chegar';
   const badge = badgeFor(data.execution, !!data.invalid);
   // A barra fica num portal fora do zoom do canvas (tamanho fixo na tela); aparece ao passar o mouse,
   // focar ou selecionar, com uma pequena tolerância para o ponteiro chegar até ela.

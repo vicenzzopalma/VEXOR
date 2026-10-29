@@ -15,6 +15,7 @@ export const stepVariables: Record<string, Record<string, string>> = {
   'email.send': { messageId: 'Identificador da mensagem', notificationId: 'Registro na fila de envio' },
   'manager.notify': { notificationId: 'Identificador do aviso' },
   'tag.add': { tag: 'Etiqueta' },
+  'ti.onboarding.plan': { requestId: 'Solicitação de provisionamento', colaboradores: 'Colaboradores' },
 };
 export type TemplatePart = { kind: 'text' | 'variable'; value: string };
 export function templateParts(value: string): TemplatePart[] {

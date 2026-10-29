@@ -97,3 +97,30 @@ Ainda não há garantia de produção/SaaS público: a API permanece deliberadam
 A partir da migração `202610260015_lead_revision`, o PostgreSQL incrementa `Lead.revision` a cada atualização, inclusive worker e SQL direto. Leia a revisão em `GET /leads/:id` e envie `expectedRevision` no PATCH; o campo é obrigatório. Duas edições com a mesma revisão não podem se confirmar: a segunda recebe 409 e deve recarregar os dados antes de reaplicar sua intenção. Não repetir automaticamente com uma revisão nova. A organização continua sendo resolvida pela sessão, nunca pelo corpo da requisição.
 
 O ambiente local usa papel com superusuário/BYPASSRLS e não comprova isolamento por políticas PostgreSQL, escala, pool ou recuperação de backup. Auditoria e critérios faseados: [database-saas-audit.md](database-saas-audit.md). Antes de produção, separar papéis de migração/runtime e bloquear sessões de desenvolvimento fora do ambiente local.
+
+## Provisionamento de TI na VPS
+
+Instância isolada do VEXOR na VPS Hostinger (`187.77.243.224`, Ubuntu 24.04), que já hospeda outras aplicações (PM2 `veritas-*`, `agenda-realess`, `crm-celulares`, `esfera-hub`, nginx). Nada disso é tocado: a instância usa usuário, pasta, unit systemd e portas próprias, e não usa PM2 nem nginx.
+
+- Usuário de sistema `vexor` (sem shell, home `/opt/vexor`). Código em `/opt/vexor/app`; banco embedded-postgres em `/opt/vexor/app/.local/postgres` (o Postgres recusa rodar como root, por isso o usuário dedicado).
+- Unit `/etc/systemd/system/vexor.service`: `User=vexor`, `ExecStart=/usr/bin/node scripts/dev.mjs`, `Restart=on-failure`, `MemoryMax=3G`, `CPUQuota=150%`, `Nice=5`, `ProtectSystem=full`, `ProtectHome=true`, `ReadWritePaths=/opt/vexor`.
+- Portas, todas só em `127.0.0.1`: web **3100**, API **4100**, PostgreSQL **55442**. A API é deliberadamente local (`DEVELOPMENT_WORKSPACE=true`, sem autenticação pública), então **não** expor por nginx.
+- Acesso pelo túnel SSH: `ssh -i ~/.ssh/veritas_vps -L 3100:127.0.0.1:3100 root@187.77.243.224` e abrir <http://localhost:3100/provisionamento>. `WEB_ORIGIN=http://localhost:3100` precisa coincidir com a origem usada no navegador.
+- `.env` em `/opt/vexor/app/.env` (modo 600, dono `vexor`; nunca commitar). Além de `DATABASE_URL`, `POSTGRES_PORT`, `API_PORT`, `API_ORIGIN`, `WEB_PORT`, `WEB_ORIGIN` e `DEVELOPMENT_WORKSPACE`, a instância desliga WhatsApp, e-mail externo e confirmação de descadastro, e define (somente nomes; valores ficam no servidor):
+  - `TI_PROVISIONING_ENABLED` (`true` para o worker executar solicitações aprovadas)
+  - `TI_CPANEL_ADV_HOST`, `TI_CPANEL_ADV_USER`, `TI_CPANEL_ADV_PASS` (`realess.adv.br`)
+  - `TI_CPANEL_COM_HOST`, `TI_CPANEL_COM_USER`, `TI_CPANEL_COM_PASS` (`realess.com.br`)
+  - `TI_TARIFANDO_BASE_URL`, `TI_TARIFANDO_USUARIO`, `TI_TARIFANDO_TOKEN`
+  - opcional `TI_EMAIL_PASSWORD_TEMPLATE` (ex.: com `{Setor3}`); sem ela a senha de e-mail nova é aleatória
+- Logs e estado: `journalctl -u vexor -f`, `systemctl status vexor`, `curl -s http://127.0.0.1:4100/health`.
+
+### Atualizar
+
+1. No worktree: `git ls-files -co --exclude-standard > files.txt` e `tar -czf vexor.tgz -T files.txt` (só arquivos versionados e novos; sem `node_modules`, `.env`, `.local`, `.next`).
+2. Copiar para `/opt/vexor/`, `systemctl stop vexor`, extrair em `/opt/vexor/app` e `chown -R vexor:vexor /opt/vexor`.
+3. Dependências como `vexor`: `sudo -u vexor -H env HOME=/opt/vexor npx -y npm@11.13.0 ci --no-audit --no-fund`. O npm 10 da VPS rejeita o `package-lock.json` gerado com npm 11 (esbuild "missing from lock file"); o npm 11 é usado só nessa instalação, sem trocar o npm global.
+4. `systemctl start vexor`. O `dev.mjs` gera o Prisma Client, compila os pacotes e aplica as migrações pendentes antes de subir API, worker e web.
+
+### Remover sem afetar o resto
+
+`systemctl disable --now vexor`, `rm /etc/systemd/system/vexor.service`, `systemctl daemon-reload`, `userdel vexor` e `rm -rf /opt/vexor`. Isso apaga também o banco e as senhas geradas guardadas nele; exporte o que precisar antes.

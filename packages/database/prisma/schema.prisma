@@ -31,6 +31,38 @@ model Organization {
   ingressLogs   WebhookIngressLog[]
   optOutEvents  OptOutEvent[]
   optOutConfirmations OptOutConfirmation[]
+  provisioningRequests ProvisioningRequest[]
+}
+
+/// Provisionamento de TI: plano gerado pelo fluxo, aprovado por uma pessoa e executado pelo worker.
+model ProvisioningRequest {
+  id              String       @id @default(uuid())
+  organizationId  String       @map("organization_id")
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  executionId     String?      @map("execution_id")
+  nodeId          String?      @map("node_id")
+  title           String
+  /// PENDING_APPROVAL, APPROVED, PROCESSING, COMPLETED, PARTIAL, FAILED, REJECTED
+  status          String       @default("PENDING_APPROVAL")
+  plan            Json
+  answers         Json         @default("{}")
+  result          Json?
+  /// Senhas geradas (e-mail, ramal), cifradas com CONNECTOR_ENCRYPTION_KEY.
+  secrets         String?
+  revision        Int          @default(1)
+  decidedBy       String?
+  decidedAt       DateTime?
+  processingToken String?
+  processingAt    DateTime?
+  attempt         Int          @default(0)
+  errorCode       String?
+  finishedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  @@unique([executionId, nodeId])
+  @@index([organizationId, createdAt])
+  @@index([status, decidedAt])
 }
 
 model Membership {

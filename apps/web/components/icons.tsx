@@ -8,6 +8,7 @@ import {
   Bell,
   Webhook,
   MessageCircle,
+  ServerCog,
   type LucideIcon,
 } from 'lucide-react';
 import type { BlockType } from '@eimax/workflow-schema';
@@ -26,4 +27,5 @@ export const blockIcons: Record<BlockType, LucideIcon> = {
   'tag.add': Tag,
   'manager.notify': Bell,
   'webhook.received': Webhook,
+  'ti.onboarding.plan': ServerCog,
 };
