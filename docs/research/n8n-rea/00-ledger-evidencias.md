@@ -16,3 +16,14 @@ Pasta das evidências: `D:\VEXOR\_ref\n8n\evidence` (fora do git). Ferramenta: R
 | E8 | REA | n8n-editor-ui 2.16.2, `dist/assets/RunData-DCyM875J.js` | `analyze-javascript-application`, um arquivo, heap 512 MB e até 3.000 nós semânticos | `ev_c5dcac785c2d39c7c783ca6fd51c72d5df33463cc6b6e9dda625167652771153`; saída em `editor-rundata-rea.json` fora do repositório (envelope UTF-16LE, evidência em `data`); análise estática limitada, não comprova comportamento em execução |
 
 Fontes de documentação pública: ids A1..An em `01-editor-frontend-docs.md` e B1..Bn em `02-backend-execucao-api-docs.md`. Inventário do VEXOR: `03-inventario-vexor.md` (citações arquivo:linha).
+
+## Rodada aprofundada (29/10/2026)
+
+| Id | Tipo | Alvo | Resultado |
+| --- | --- | --- | --- |
+| E9 | REA + leitura direta | editor: painel do nó, canvas, execuções, logs (1 a 3 chunks por análise, heap 512 MB) | quatro análises e cinco vistas/rastreios; ids completos no "Ledger R1" de `06-editor-rea-aprofundado.md`; pacote exportado `D:\VEXOR\_ref
+8n\evidence1-editor-rea-bundle.json` |
+| E10 | REA + leitura direta | servidor: ciclo de vida, espera, recuperação, ativação, fila, credenciais, OAuth, permissões | `ev_0f607cdd...`, `ev_8312e066...` e rastreios; ids completos no "Ledger R2" de `07-backend-rea-aprofundado.md` |
+
+Limite comum às duas rodadas: o REA confirmou estrutura e campos, mas não indexa textos soltos; o comportamento fino veio de leitura direta e está rotulado assim. Nada foi executado. Os fontes extraídos dos mapas de origem para leitura foram apagados ao fim da rodada.
+

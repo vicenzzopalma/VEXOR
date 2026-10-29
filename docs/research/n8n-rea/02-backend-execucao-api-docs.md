@@ -474,12 +474,627 @@ Convenções:
 **Desconhecido**
 - Como dois gatilhos no mesmo fluxo compartilham dados estáticos e contexto.
 
-## 6 a 12. Seções não concluídas
+## 6. Credenciais
 
-O agente foi interrompido pelo usuário em 28/10/2026 antes de escrever estas seções pela documentação. Elas ficam cobertas, por enquanto, pelas evidências dos pacotes publicados em `04-artefatos-rea.md`:
+Fontes desta seção e das seções 7 a 12: documentação pública acessada em 2026-10-29 (ids B317 em diante, ver "Ledger de fontes") e leituras diretas dos pacotes [E4][E5][E6].
 
-- Credenciais, projetos, papéis, variáveis, chaves de API, controle de versão: rotas internas com escopos de permissão [E4].
-- API pública: especificação OpenAPI 3.0, versão 1.1.1 [E5].
-- Catálogo de nós e credenciais: 438 nós, 392 credenciais, 110 arquivos de gatilho [E6].
+### 6.1 O que é, criação, campos e teste
 
-**Desconhecido**: variáveis de ambiente de operação, CLI, métricas e backup do n8n não foram levantados.
+**Observação**
+- Credencial é um conjunto guardado de dados de autenticação que liga fluxos a serviços externos (APIs, bancos) [B317].
+- Três caminhos para criar: botão de criar no menu lateral, botão de criar na visão geral ou dentro de um projeto, e lista de credenciais dentro do painel do nó. Em instância com projetos, a pessoa escolhe o espaço pessoal ou um projeto; a edição Community cria sempre no espaço pessoal [B317].
+- Nome padrão segue o padrão "nome do nó + conta" e pode ser renomeado; a variável `CREDENTIALS_DEFAULT_NAME` define o padrão da instância [B317][B323].
+- Os campos dependem do tipo de credencial; a biblioteca de credenciais traz instruções por serviço [B317]. A API pública expõe o esquema de campos por tipo em `GET /credentials/schema/{credentialTypeName}` [B336][E5].
+- Teste de conexão: ao salvar, a plataforma testa a credencial [B317]. A API pública tem `POST /credentials/{credentialId}/test`, que responde `status` (OK ou Error) e `message` usando os dados guardados [E5]. A API interna também tem teste de credencial ainda não salva e uma "sondagem" (`probe`) de credencial salva [E4].
+- Campo "domínios permitidos para requisição HTTP" em muitas credenciais de APIs web: todos, lista de domínios separada por vírgula, ou nenhum. Só restringe o uso no nó de requisição HTTP, não nos nós dedicados [B317].
+- Campos de credencial aceitam expressões; o dado referenciado precisa existir antes do nó que usa a credencial [B317][B55].
+- No Cloud existem credenciais gerenciadas para serviços de IA, pagas com créditos da plataforma em vez de chave própria [B317].
+- Tipos de uso: credencial fixa (padrão; a mesma para qualquer pessoa que rode o fluxo) e credencial de usuário final (cada pessoa conecta a própria conta) [B317][B327].
+
+**Inferência**
+- O teste "ao salvar" e o teste por id na API sugerem que cada tipo de credencial declara uma requisição de teste própria (por quê: a credencial genérica simplificada pede uma URL de teste opcional e códigos aceitos como sucesso) [B321].
+
+**Desconhecido**
+- Se o teste ao salvar bloqueia o salvamento quando falha ou só avisa.
+
+### 6.2 Criptografia em repouso e chaves
+
+**Observação**
+- Credenciais são cifradas antes de ir para o banco com a chave `N8N_ENCRYPTION_KEY`. Sem a variável, a plataforma gera uma chave aleatória no primeiro início e a guarda na pasta do usuário (`~/.n8n`, arquivo de configuração). Em modo fila, todos os workers precisam da mesma chave [B324][B358][B135].
+- Rotação de chaves em dois níveis: a chave da instância nunca muda e protege chaves de dados; as chaves de dados cifram as credenciais e são as que giram. Rotação pela tela de chaves de criptografia ou por `POST /encryption/keys` (escopo global `encryptionKey:manage`; só o dono da instância). Novas gravações usam a chave ativa; registros antigos continuam legíveis e só são recifrados quando alterados. Ligada por padrão na 3.0; na 2.x depende de `N8N_ENV_FEAT_ENCRYPTION_KEY_ROTATION`; não existe no Cloud; dados no formato novo não são lidos por versões antigas [B325][E4].
+- Exportação de credenciais nunca leva segredos nos pacotes e JSON de fluxo [B18][B26]. A CLI exporta credenciais e só grava em texto puro com a opção de decifrar [B353].
+- A doc de JWE para tokens OAuth 2.0 existe como página de segurança (não lida) [B362].
+
+**Inferência**
+- Perder a chave da instância torna as credenciais irrecuperáveis (por quê: a página de backup diz que sem a chave original as credenciais restauradas não podem ser decifradas) [B355].
+
+**Desconhecido**
+- Algoritmo de criptografia (a documentação não nomeia); formato do valor cifrado no banco.
+
+### 6.3 Compartilhamento por projeto e por usuário
+
+**Observação**
+- Quem compartilha: o criador e dono da credencial; admin de projeto para credenciais do projeto; dono e admin da instância veem e compartilham todas. Na aba de compartilhamento, só o dono ou quem tem permissão altera acessos [B319].
+- Quem recebe ganha o papel "pode usar": roda e publica fluxos com a credencial, mas não vê nem edita os detalhes [B319].
+- Destino do compartilhamento: um usuário ou um projeto inteiro; membros do projeto usam conforme o papel no projeto [B319].
+- Credencial pessoal usada em fluxo de projeto de equipe aparece para os membros com rótulo "pode ver": veem no fluxo, mas não usam nem editam; só o dono e quem recebeu direto podem rodar ou publicar esse fluxo [B319][B331].
+- Mover fluxo ou credencial entre projetos remove todos os compartilhamentos existentes; ao mover um fluxo é possível compartilhar as credenciais de que ele precisa [B331][B168]. Na API pública: `PUT /credentials/{credentialId}/transfer` com `destinationProjectId` [E5].
+- Em fluxo compartilhado, quem edita usa todas as credenciais do fluxo, mesmo as não compartilhadas com ele; mas não edita nós que usam credencial não compartilhada [B347].
+- Licença do compartilhamento de credenciais: todos os planos Cloud; self-hosted Business e Enterprise [B319].
+- Política de segurança da instância pode proibir compartilhar a partir do espaço pessoal (`N8N_PERSONAL_SPACE_SHARING_ENABLED`) [B348][B350].
+- A API interna tem rotas de compartilhar, transferir, desconectar token OAuth e listar credenciais disponíveis para um fluxo [E4].
+
+**Inferência**
+- "Usar sem ver" implica que a resolução dos segredos acontece só no servidor na hora da execução e que o editor recebe apenas id, nome e tipo (por quê: o papel "pode usar" não dá leitura dos detalhes).
+
+### 6.4 OAuth1 e OAuth2
+
+**Observação**
+- OAuth1 genérico: URL de autorização, URL de token de acesso, chave e segredo do consumidor, URL de token de requisição, método de assinatura (HMAC-SHA1, HMAC-SHA256, HMAC-SHA512) [B321].
+- OAuth2 genérico: tipo de concessão "código de autorização" (URL de autorização, URL de token, id e segredo do cliente, escopo opcional, parâmetros extras na URL de autorização, autenticação por cabeçalho básico ou no corpo, ignorar SSL), "credenciais do cliente" (sem URL de autorização) e PKCE (mesmos campos do código de autorização) [B321].
+- Nos dois casos, o serviço externo deve receber como URL de retorno a "OAuth Redirect URL" mostrada pela plataforma no formulário da credencial [B321].
+- A API interna tem rotas separadas de "obter URL de autorização" e "retorno" para OAuth1 e OAuth2, sob o prefixo REST [E4][B92].
+- A URL de retorno depende da URL pública do editor (`N8N_EDITOR_BASE_URL`) [B358].
+- Credenciais OAuth gerenciadas: o administrador pode preencher id e segredo do cliente globalmente (sobrescrita de credenciais) e o usuário só clica em "conectar"; os campos sobrescritos ficam ocultos; `N8N_MANAGED_OAUTH_SHOW_SCOPES` libera o campo de escopo para tipos gerenciados [B328][B323].
+- Desconectar o token OAuth de uma credencial existe como rota interna [E4].
+- Escopos: alguns tipos de credencial predefinida têm escopos fixos e a interface avisa quais partes da API cobrem [B322].
+
+**Inferência**
+- O fluxo é o padrão de mercado: a plataforma abre a URL de autorização em janela, o provedor redireciona para a rota de retorno com código e estado, e o servidor troca o código pelo token e guarda o token cifrado na credencial (por quê: existem as rotas de autorização e de retorno e o token pode ser "desconectado") [E4].
+- A renovação do token de acesso com o token de atualização é automática na execução (por quê: não há página que peça reconexão periódica). Não confirmado pela documentação oficial.
+
+**Desconhecido**
+- Caminho exato completo da URL de retorno (a doc manda copiar do formulário); política de renovação do token (antes de expirar ou ao receber 401); comportamento quando a renovação falha.
+
+### 6.5 Predefinidas x genéricas e uso em requisições HTTP
+
+**Observação**
+- Credencial predefinida: tipo próprio de um serviço suportado, usado pelo nó dedicado e reaproveitável no nó de requisição HTTP e no nó GraphQL para operações que o nó dedicado não oferece, sem configurar autenticação de novo [B320][B322].
+- Credencial genérica (para serviços sem nó): básica (usuário e senha), digest (usuário e senha), cabeçalho (nome e valor), bearer (cabeçalho Authorization com token), query (um parâmetro nome e valor), personalizada em JSON (cabeçalhos, query e corpo combinados), personalizada simplificada (a partir de 2.35.0: modelo JSON com marcadores, campos secretos ou de texto, obrigatórios, URL de teste, códigos de status aceitos no teste, link de documentação; valores redigidos após salvar), OAuth1 e OAuth2 [B320][B321].
+- Credencial de certificados SSL para o nó HTTP: CA, certificado, chave privada e senha opcional [B321].
+- Nós "só de credencial": serviços para os quais existe só a credencial, usada pelo nó HTTP [B360].
+- Credencial de webhook (básica, cabeçalho, JWT) protege gatilhos [B316].
+- Importar cURL preenche o nó HTTP e pode trazer cabeçalhos de autenticação em texto [B320][B18].
+- Proteção SSRF opcional (a partir de 2.12.0) bloqueia redes privadas, loopback, link-local e metadados de nuvem em nós controláveis pelo usuário, com listas de permissão por hostname e faixa de IP [B359].
+
+**Inferência**
+- Para o VEXOR, separar "tipo de credencial com esquema e teste" de "uso da credencial pelo nó HTTP genérico" cobre a maior parte dos casos de cobrança sem escrever um conector por serviço (por quê: o nó HTTP aceita qualquer credencial predefinida ou genérica) [B322].
+
+### 6.6 Credenciais de usuário final, segredos externos, sobrescritas e políticas
+
+**Observação**
+- Credenciais de usuário final (preview, Enterprise): só tipos OAuth; o admin cria um modelo e cada pessoa conecta a própria conta; conexão privada e dados de execução isolados; funcionam com gatilho manual, hub de chat, gatilho de servidor MCP, webhook, formulário e chat (estes com autenticação de usuário da instância); quem não conectou é convidado a conectar antes de disparar [B327][B84].
+- Segredos externos (Enterprise): provedores 1Password (Connect), AWS Secrets Manager, Azure Key Vault, GCP Secret Manager, HashiCorp Vault e Infisical; segredos em texto puro; referência por expressão com nome do cofre e do segredo; resolvem só em campos de credencial; cofre global ou por projeto (2.11.0); vários cofres por provedor (2.10.0); admin e editor de projeto podem usar cofres do projeto quando habilitado (2.13.0) [B326][B329].
+- Sobrescrita de credenciais (self-hosted): `CREDENTIALS_OVERWRITE_DATA` (JSON por tipo; desaconselhado), `CREDENTIALS_OVERWRITE_ENDPOINT` com token opcional (`CREDENTIALS_OVERWRITE_ENDPOINT_AUTH_TOKEN`; sem token só aceita uma chamada), `CREDENTIALS_OVERWRITE_PERSISTENCE` (guarda cifrado no banco e propaga para workers); vale também para tipos filhos [B328][B323].
+- Políticas de tipos de credencial e de tipos de nó (preview): regras por instância e por projeto, com ação padrão, versão e anexos por escopo [E5][B165].
+- Resolvedores de credencial dinâmica existem na API interna (Enterprise) e o fluxo tem `credentialResolverId` só leitura [E4][B196].
+
+**Desconhecido**
+- Intervalo de atualização dos valores de segredos externos; cache de segredos em workers.
+
+## 7. Variáveis, dados estáticos, dados binários, ambientes e git
+
+### 7.1 Variáveis personalizadas
+
+**Observação**
+- Pares chave e valor reaproveitáveis em fluxos. Licença: Cloud Pro e Enterprise; self-hosted Business e Enterprise [B337].
+- Só dono e admin da instância criam variáveis globais. Escopo global (toda a instância) ou de projeto (a partir de 1.118.0); variável de projeto com a mesma chave sobrepõe a global dentro do projeto [B337]. Papéis personalizados de projeto têm escopos de variável de projeto (ler, editar, criar, excluir) [B333].
+- Chave até 50 caracteres; valor até 1000; só letras, números e sublinhado; todos os valores são texto [B337].
+- Uso por expressão ou no nó de código através do objeto de variáveis; variável sem valor vira indefinida sem falhar o fluxo; fluxos não alteram variáveis (só pela interface ou API) [B337][B57].
+- Na API: `GET /variables` (paginado; filtros `projectId` e `state=empty`), `POST /variables`, `PUT /variables/{id}`, `DELETE /variables/{id}`; campos `id`, `key`, `value`, `type`, `project` [E5].
+- Valores de variáveis e credenciais não passam pelo git; vão só "stubs" (esqueletos) [B344][B343].
+
+**Desconhecido**
+- Valores aceitos em `type` além de texto; se existe limite de quantidade (a importação de pacotes cita uma cota de variáveis da instância) [E5].
+
+### 7.2 Dados estáticos do fluxo
+
+**Observação**
+- Objeto persistente por fluxo, lido e gravado só no nó de código JavaScript, com escopo global (todos os nós) ou por nó; descrito como experimental [B338][B196].
+- Gravado só quando a execução termina com sucesso e o conteúdo mudou; indisponível em execuções de teste; exige fluxo publicado e disparo por gatilho ou webhook; pode falhar com execuções muito frequentes; deve ser pequeno [B338].
+- A doc recomenda tabelas de dados como alternativa (funcionam em teste, sem código) [B338][B340].
+- `staticData` é campo do objeto de fluxo na API e não vai nos pacotes portáveis [B196][B25].
+
+**Inferência**
+- Como só grava em sucesso, duas execuções simultâneas podem sobrescrever o estado uma da outra (por quê: a doc avisa de comportamento instável com alta frequência).
+
+### 7.3 Tabelas de dados
+
+**Observação**
+- Armazenamento tabular interno por projeto; uso pelo nó dedicado, pela API e pela aba da interface; criação manual ou por CSV; renomear, reordenar, excluir tabelas e colunas; editar linhas; exportar CSV; favoritar [B340].
+- Limite padrão de 200 MiB somando todas as tabelas da instância (`N8N_DATA_TABLES_MAX_SIZE_BYTES`); aviso a 80%; no limite, inserções e atualizações dos fluxos falham [B340].
+- Acesso por projeto; admin e dono veem todas; não há leitura direta em expressões nem no nó de código [B340].
+- Escopos de papel personalizado: ver tabela, ver linhas, editar tabela, editar linhas, criar, excluir [B333].
+- API: tabelas (listar com filtro e ordenação, criar com colunas ou a partir de arquivo, ler, renomear, excluir), colunas (listar, adicionar, renomear ou reordenar, excluir) e linhas (listar com filtro, ordenação e busca; inserir; upsert com simulação; atualizar por filtro; excluir por filtro; limpar) [E5].
+- No git só o esquema sincroniza, nunca as linhas [B343].
+
+### 7.4 Dados binários
+
+**Observação**
+- Modos: `default` (memória; arquivos grandes podem derrubar o processo), `filesystem`, `database`, `s3` e `azure`. Variáveis: `N8N_DEFAULT_BINARY_DATA_MODE` (padrão `default`), `N8N_AVAILABLE_BINARY_DATA_MODES`, `N8N_BINARY_DATA_STORAGE_PATH` (padrão pasta do usuário/binaryData), `N8N_BINARY_DATA_DATABASE_MAX_FILE_SIZE` (512 MiB, teto 1024) [B341][B339].
+- Modo fila não aceita `filesystem`; usar `database`, `s3` ou `azure`. O armazenamento binário também guarda respostas de webhook grandes demais para a fila [B339][B135].
+- Poda de binários acompanha a poda de execuções e só no modo ativo; dados de um modo antigo ficam órfãos [B339][B137].
+- Armazenamento externo S3 e Azure exige licença Business ou Enterprise [B139].
+
+**Desconhecido**
+- Se o modo `database` grava binários em tabela própria ou junto da execução; limites de arquivo nos modos s3 e azure.
+
+### 7.5 Ambientes e controle de versão por git
+
+**Observação**
+- Licença Business e Enterprise. Dono e admin configuram; dono e admin fazem push e pull; admin de projeto só faz push [B342][B343].
+- Ambiente é uma instância mais um ramo git; padrão comum de desenvolvimento e produção; um ramo e várias instâncias (push numa, pull na outra) ou vários ramos com pull request no provedor git [B344].
+- Push: escolher fluxos e tabelas, mensagem de commit; envia a versão salva e não a publicada; tags, stubs de variáveis e de credenciais vão automaticamente; projetos e pastas também [B343].
+- Pull: avisa antes de sobrescrever; associa fluxos e credenciais a usuários e projetos correspondentes (cria projeto ausente; quem puxa vira dono se o usuário não existir); publicação automática desligada, "se já publicado" ou ligada; arquivados nunca são publicados; fluxo publicado é despublicado e republicado com segundos de indisponibilidade [B343][B184].
+- Conflitos: fluxos não têm detecção de conflito (git é a fonte da verdade e sobrescreve); credenciais e variáveis existentes em geral não são atualizadas no pull; tags renomeadas podem quebrar unicidade; itens apagados no git só são removidos localmente se a pessoa confirmar; tabelas só esquema, e tabela local ausente no git é apagada no pull [B343].
+- Versões de fluxo vindas do pull ficam no histórico do banco, não no git [B19].
+- API: `GET /source-control/status` (prévia em direção push ou pull), `POST /source-control/push` (mensagem, arquivos, forçar), `POST /source-control/pull` (forçar, publicação automática), com lista de arquivos, estado, conflito e erro de publicação por item [E5].
+- Promoções (API pública): provedores de repositório, conexões entre instâncias, aplicação e promoção de configurações e de projetos, listagem de mudanças por direção [E5].
+
+**Inferência**
+- "Promoções" parecem a evolução do push e pull manual para um pipeline entre instâncias (por quê: os recursos de conexão, promover e aplicar existem na API mas não têm página de produto lida) [E5].
+
+**Desconhecido**
+- Licença e estabilidade das promoções; formato dos arquivos no repositório git.
+
+## 8. Organização e acesso
+
+### 8.1 Usuários e papéis da instância
+
+**Observação**
+- Papéis globais embutidos: dono (tudo, inclusive console do Cloud), admin (quase tudo do dono, sem console; vê e compartilha todos os fluxos, vê e edita todas as credenciais, configura git, cria e vê projetos, adiciona e remove usuários), membro (próprios fluxos, cria e usa tags, gerencia o próprio e-mail e senha) e usuário de chat (só chat e fluxos e agentes compartilhados; sem criar fluxos, credenciais, projetos ou chaves de API) [B330].
+- Admin e usuário de chat: Cloud Pro e Enterprise, self-hosted Enterprise [B330].
+- Virar usuário de chat remove a pessoa dos projetos compartilhados, deixa o projeto pessoal só leitura e apaga as chaves de API; é bloqueado se ela for a única admin de um projeto [B330].
+- A doc recomenda que o dono use uma conta de membro no dia a dia, porque a plataforma não mostra quem criou cada fluxo [B330].
+- Usuários: lista com convites pendentes, reenviar convite, excluir com opção de transferir fluxos e credenciais para outra pessoa ou apagar [B346]. E-mail de convite exige SMTP; `N8N_INVITE_LINKS_EMAIL_ONLY` impede expor o link pela API [B351].
+- Papéis globais personalizados (Enterprise) cobrem gestão de usuários, tags, chaves de API e papéis [B332].
+- Na API: `GET /users` (paginado, `includeRole`, `projectId`), `POST /users` (lote de e-mail e papel; retorna usuário ou erro por linha), `GET /users/{id}` (aceita id ou e-mail), `DELETE /users/{id}` (com `transferId`), `PATCH /users/{id}/role` (`newRoleName`) [E5]. Valores de papel global na API: `global:owner`, `global:admin`, `global:member` [E5].
+
+### 8.2 Projetos e papéis de projeto
+
+**Observação**
+- Projetos agrupam fluxos e credenciais; cada pessoa tem um papel por projeto [B331]. Tipos na API: `personal` e `team` [E5].
+- Dono e admin da instância criam projetos; admin do projeto adiciona e remove membros; excluir projeto exige transferir conteúdo para outro projeto ou apagar; projetos podem ser favoritados [B331].
+- Licença do RBAC por projetos: Cloud (todos os planos), self-hosted Registered Community, Business e Enterprise; a quantidade de projetos e papéis varia por plano [B331].
+- Papéis de projeto: admin (sem requisito citado), editor (Cloud Pro e self-hosted Enterprise) e visualizador (Cloud Enterprise e self-hosted Enterprise) [B329].
+- Matriz: os três veem fluxos, credenciais e execuções; admin e editor editam, criam e executam; só admin gerencia membros e altera o projeto; admin e editor usam segredos externos quando habilitado; só admin gerencia cofres do projeto [B329].
+- Variáveis e tags não seguem o RBAC de projeto; são globais (a variável de projeto é um recurso à parte) [B329][B337].
+- Escopos selecionáveis em papel de projeto personalizado (a partir de 1.122.0, Enterprise): fluxo (`read`, `execute`, `update`, `create`, `publish` que inclui `unpublish`, `move`, `delete`, ligar e desligar redação), credencial (`read`, `update`, `create`, `share`, `unshare`, `move`, `delete`), projeto (`read`, `update`, `delete`), pasta (`read`, `update`, `create`, `move`, `delete`), execução (`reveal`), cofres de segredos (ler, criar, atualizar, excluir, sincronizar), segredos (listar), tabela (ler, ler linhas, atualizar, gravar linhas, criar, excluir), variável de projeto (ler, atualizar, criar, excluir), git (`push`). Escopo de leitura inclui o de listagem [B333].
+- Regras dos papéis personalizados: só dono e admin criam; admin de projeto atribui; editar um papel muda todos os usuários que o têm; não dá para excluir papel em uso [B333]. A API exige `reassignRoleSlug` para excluir papel e mostra contagem de uso [E5].
+- API de projetos: listar, criar (nome, ícone, descrição, tags de telemetria; retorna papel e escopos de quem criou), atualizar, excluir, listar membros, adicionar membros em lote (`relations`), mudar papel do membro, remover membro [E5].
+- Mapeamento de papéis por provedor de identidade: regras ordenáveis na API [E5].
+
+**Inferência**
+- O modelo é "escopo recurso:ação" avaliado no projeto, com papéis como conjuntos nomeados de escopos (por quê: a API de papéis grava `scopes` e as rotas internas exigem escopos de projeto) [E4][E5].
+
+### 8.3 Compartilhamento de fluxos e políticas
+
+**Observação**
+- Licença: Cloud (todos), self-hosted Business e Enterprise. No espaço pessoal, compartilha-se com usuários; em projeto de equipe não há compartilhamento individual, entra-se no projeto [B347].
+- Papéis do fluxo: criador e editor. Editor vê fluxo e execuções, atualiza (inclusive tags), executa e exporta; não compartilha nem exclui [B347].
+- Políticas de segurança da instância (Business e Enterprise; redação Enterprise): exigir MFA para login por senha, permitir ou não compartilhar e publicar a partir do espaço pessoal, piso de redação de execuções, revisões de fluxo; podem ser fixadas por variáveis (`N8N_SECURITY_POLICY_MANAGED_BY_ENV`, a partir de 2.18.0) [B348][B350]. API: `GET` e `PUT /settings/security-policy` com contadores de fluxos publicados e compartilhados e credenciais compartilhadas no espaço pessoal [E5].
+
+### 8.4 Auditoria
+
+**Observação**
+- Auditoria de segurança por CLI, por `POST /audit` ou por nó interno; cinco relatórios: credenciais (não usadas ou sem uso em fluxos ativos recentes), banco (nós SQL com expressões em consultas), sistema de arquivos (nós que acessam arquivos), nós (nós oficiais que rodam código no host, nós da comunidade e personalizados) e instância (webhooks sem proteção, ajustes de segurança faltando, versão desatualizada) [B345].
+- Fluxo considerado abandonado após `N8N_SECURITY_AUDIT_DAYS_ABANDONED_WORKFLOW` dias sem execução (padrão 90) [B350]. A API aceita `additionalOptions` com categorias (credentials, database, nodes, filesystem, instance) [E5].
+- Trilha de eventos para sistemas externos é o log streaming (Enterprise): destinos webhook, syslog e Sentry; API para listar tipos de evento, CRUD de destinos e mensagem de teste [B189][E5].
+- Revelar execução redigida gera evento de auditoria [B148].
+
+**Desconhecido**
+- Se existe um registro de auditoria consultável dentro do produto (além do log streaming).
+
+### 8.5 SSO, LDAP e MFA (só registro)
+
+**Observação**
+- Há páginas de SAML (com guias para Okta e Azure AD), OIDC, LDAP e exigência de dois fatores [B362]. A API pública tem configuração de SAML, OIDC e LDAP, mais histórico e disparo de sincronização LDAP [E5]. MFA ligado por padrão (`N8N_MFA_ENABLED`); CLI desliga MFA de um usuário e reseta LDAP [B351][B353].
+- Sessão por JWT com duração padrão de 168 horas e renovação automática perto do fim (`N8N_USER_MANAGEMENT_JWT_DURATION_HOURS`, `N8N_USER_MANAGEMENT_JWT_REFRESH_TIMEOUT_HOURS`) [B351].
+
+### 8.6 Chaves de API
+
+**Observação**
+- Criadas em Configurações, com rótulo e expiração; escopos só no Enterprise (fora dele a chave tem acesso total) [B334].
+- Grupos de escopo: pacotes da comunidade, credenciais, tabelas, colunas, linhas, execuções, tags de execução, pastas, insights, projetos, auditoria de segurança, controle de versão, tags, usuários, variáveis, fluxos e tags de fluxo. Escopos de chave são separados dos escopos de papel de projeto [B334].
+- A API interna tem criar, listar, atualizar, excluir, girar chave e listar escopos disponíveis [E4]. Cada operação da OpenAPI declara o escopo exigido (`x-required-scope`, 170 ocorrências) [E5].
+- Usuário de chat perde as chaves ao mudar de papel [B330].
+- API indisponível no período de teste do Cloud [B334][B336].
+
+**Desconhecido**
+- Prazos de expiração oferecidos; se a chave herda as permissões do papel do dono quando não há escopos.
+
+## 9. API pública
+
+### 9.1 Autenticação, versão, paginação e idempotência
+
+**Observação**
+- Base `/api/v1` (caminho configurável por `N8N_PUBLIC_API_ENDPOINT`, padrão `api`); OpenAPI 3.0, versão do contrato 1.1.1 [E5][B358].
+- Autenticação por cabeçalho `X-N8N-API-KEY`. A especificação também declara bearer JWT e cookie de sessão como alternativas [B334][E5].
+- Desligar a API e o playground: `N8N_PUBLIC_API_DISABLED` e `N8N_PUBLIC_API_SWAGGERUI_DISABLED` (ambos falsos por padrão); playground só self-hosted [B357][B358][B336].
+- Paginação por cursor: `limit` padrão 100, máximo 250; resposta com `data` e `nextCursor`; o próximo pedido envia `cursor` [B335][E5]. Exceção: pastas usam `skip` e `take` [E5].
+- Idempotência: cabeçalho `Idempotency-Key` opcional nos POST, de 1 a 128 caracteres ASCII visíveis; mesma chave e mesmo pedido devolvem a primeira resposta de sucesso; pedido diferente com a mesma chave dá 422; repetição enquanto o primeiro ainda roda dá 409 [E5][B336].
+- Descoberta: `GET /discover` devolve o mapa de recursos e operações liberados para a chave, com opção de incluir esquemas [E5].
+- Códigos comuns: 400, 401, 403, 404, 409, 415, 422 [E5].
+- Também existe um nó interno que chama a própria API e uma CLI cliente que envolve a API [B336].
+
+**Desconhecido**
+- Política de versionamento (quando vira v2) e limites de taxa; nenhuma página consultada os cita.
+
+### 9.2 Fluxos
+
+| Método | Caminho | Parâmetros principais | Resposta (campos principais) |
+| --- | --- | --- | --- |
+| GET | /workflows | limit, cursor, active, tags, name, projectId, excludePinnedData, includeParentFolder | página de fluxos (id, name, active, activeVersionId, isArchived, versionId, nodes, connections, settings, tags, shared, parentFolder) |
+| POST | /workflows | corpo: name, nodes, connections, settings, projectId, parentFolderId | fluxo criado |
+| GET | /workflows/{id} | excludePinnedData | fluxo completo com activeVersion |
+| PUT | /workflows/{id} | publishIfActive; corpo do fluxo | fluxo; 409 em conflito |
+| DELETE | /workflows/{id} | | fluxo excluído |
+| POST | /workflows/{id}/archive e /unarchive | | fluxo |
+| PUT | /workflows/{id}/transfer | destinationProjectId | 204 |
+| POST | /workflows/{id}/publish | versionId, name, description | fluxo publicado |
+| POST | /workflows/{id}/unpublish | | fluxo |
+| POST | /workflows/{id}/activate e /deactivate | obsoletos | fluxo |
+| GET | /workflows/{id}/history | limit, cursor | versões (versionId, authors, name, description, datas) |
+| GET | /workflows/{id}/versions/{versionId} | | versão com nodes e connections |
+| GET, PUT | /workflows/{id}/tags | lista de ids | tags |
+
+Fonte: [E5][B196]. Escopos `workflow:list`, `read`, `create`, `update`, `delete`, `move`, `activate`, `deactivate`, `workflowTags:*` [E5].
+
+### 9.3 Execuções
+
+| Método | Caminho | Parâmetros principais | Resposta (campos principais) |
+| --- | --- | --- | --- |
+| GET | /executions | limit, cursor, includeData, ignoreDataSizeLimit, redactExecutionData, status, workflowId, projectId, startedAfter, startedBefore | página (id, finished, mode, retryOf, retrySuccessId, status, startedAt, stoppedAt, workflowId, waitTill, storedAt, customData) |
+| GET | /executions/{id} | includeData, ignoreDataSizeLimit, redactExecutionData | execução com data, jsonSizeBytes, binaryDataSizeBytes, workflowVersionId, tracingContext |
+| DELETE | /executions/{id} | | execução excluída |
+| GET, PUT | /executions/{id}/tags | lista de ids | tags |
+| POST | /executions/{id}/stop | | mode, status, datas |
+| POST | /executions/stop | status, workflowId, startedAfter, startedBefore | stopped (contagem) |
+| POST | /executions/{id}/retry | loadWorkflow | nova execução com retryOf e annotation |
+
+Fonte: [E5][B197].
+
+### 9.4 Credenciais
+
+| Método | Caminho | Parâmetros principais | Resposta (campos principais) |
+| --- | --- | --- | --- |
+| GET | /credentials | limit, cursor | página (id, name, type, datas, shared), sem segredos; só dono e admin |
+| POST | /credentials | name, type, data, projectId, description | id, name, type, isManaged, isGlobal, isResolvable |
+| GET | /credentials/{id} | | metadados, sem segredos |
+| PATCH | /credentials/{id} | name, data, isGlobal, isPartialData | metadados |
+| DELETE | /credentials/{id} | | metadados e usageScope |
+| PUT | /credentials/{id}/transfer | destinationProjectId | 204 |
+| POST | /credentials/{id}/test | | status (OK ou Error), message |
+| GET | /credentials/schema/{tipo} | | esquema JSON dos campos do tipo |
+
+Fonte: [E5].
+
+**Inferência**: `isPartialData` na atualização permite trocar só alguns campos sem reenviar todos os segredos (por quê: nome do campo; descrição não lida).
+
+### 9.5 Tags, usuários, projetos, variáveis e pastas
+
+| Recurso | Operações | Parâmetros e campos principais |
+| --- | --- | --- |
+| Tags | GET lista, POST, GET um, PUT, DELETE em /tags e /tags/{id} | limit, cursor; id, name, datas |
+| Usuários | GET lista, POST lote, GET por id ou e-mail, DELETE, PATCH papel | includeRole, projectId, transferId, newRoleName; id, email, firstName, lastName, isPending, mfaEnabled, role |
+| Projetos | GET lista, POST, PUT, DELETE em /projects; membros em /projects/{id}/users (GET, POST, PATCH papel, DELETE) | id, name, type, icon, description, creatorId; relations, role |
+| Variáveis | GET lista, POST, PUT, DELETE em /variables | projectId, state; id, key, value, type, project |
+| Pastas | GET lista, POST, GET detalhe, PATCH, DELETE em /projects/{id}/folders | filter, select, sortBy, skip, take, transferToFolderId; id, name, parentFolderId, totalSubFolders, totalWorkflows |
+| Papéis | GET lista, POST, GET, PUT, DELETE em /roles | withUsageCount, reassignRoleSlug; slug, displayName, roleType, scopes, systemRole |
+
+Fonte: [E5][B205].
+
+### 9.6 Auditoria, controle de versão, tabelas de dados e outros
+
+| Recurso | Operações | Parâmetros e campos principais |
+| --- | --- | --- |
+| Auditoria | POST /audit | additionalOptions (categorias, dias de abandono); relatório por categoria |
+| Controle de versão | GET /source-control/status, POST push, POST pull | direction; commitMessage, fileNames, force; autoPublish; arquivos com status, conflict, publishingError |
+| Tabelas de dados | CRUD em /data-tables; colunas em /columns; linhas em /rows, /rows/upsert, /rows/update, /rows/delete, /rows/clear | filter, sortBy, search, returnData, dryRun; id, name, columns, projectId, sizeBytes; deletedCount |
+| Insights | GET /insights/summary | startDate, endDate, projectId; total, failed, failureRate, timeSaved, averageRunTime |
+| Pacotes portáveis (beta) | POST /n8n-packages/export, /import, /import-selection | políticas de dependência, versão, credencial, conflito, publicação, ids |
+| Avaliações | GET e POST /workflows/{id}/test-runs, detalhe, casos, cancelar | status, metrics, testCaseCount |
+| Log streaming | tipos de evento, CRUD de destinos, teste | destino como objeto |
+| Configurações | /settings/ldap (e sync), /settings/sso/saml, /settings/sso/oidc, /settings/otel (e teste), /settings/security-policy | campos de configuração de cada recurso |
+| Pacotes da comunidade | GET, POST instalar, PATCH atualizar, DELETE | name, version; installedNodes, updateAvailable |
+| Políticas de tipos (preview) | /credential-type-policies e /node-type-policies por instância, projeto, política e anexos | rules, defaultAction, version |
+| Promoções | provedores, conexões, projetos, aplicar e promover | direction |
+
+Fonte: [E5][B345][B343][B340].
+
+**Inferência**
+- Para o VEXOR, o núcleo mínimo de paridade é fluxos, execuções, credenciais (sem segredos na leitura), tags, projetos e variáveis, com cursor e `Idempotency-Key` desde o início (por quê: são os recursos que a doc da API e os escopos de chave tratam como base) [B334][E5].
+
+## 10. Operação
+
+### 10.1 Variáveis de ambiente por categoria
+
+**Observação**
+- Convenção: quase toda variável aceita o sufixo `_FILE` para ler o valor de um arquivo [B349][B341][B351].
+- Implantação: `N8N_HOST` (localhost), `N8N_PORT` (5678), `N8N_PROTOCOL` (http), `N8N_EDITOR_BASE_URL`, `N8N_USER_FOLDER`, `N8N_PATH` (/), `N8N_LISTEN_ADDRESS` (::), `N8N_ENCRYPTION_KEY`, `N8N_PROXY_HOPS` (0), `N8N_SSL_KEY` e `N8N_SSL_CERT`, `N8N_DIAGNOSTICS_ENABLED` (true), `N8N_TEMPLATES_ENABLED` e `N8N_TEMPLATES_HOST` [B358].
+- Banco: `DB_TYPE` (sqlite padrão ou postgresdb), `DB_TABLE_PREFIX`, `DB_POSTGRESDB_DATABASE` (n8n), `HOST`, `PORT` (5432), `USER`, `PASSWORD`, `SCHEMA` (public), `POOL_SIZE` (2), opções SSL; SQLite com `DB_SQLITE_POOL_SIZE` (0 usa journal de rollback; acima de 0 liga WAL) e `DB_SQLITE_VACUUM_ON_STARTUP` [B349].
+- Execuções e retenção: salvar em erro, sucesso, progresso e manuais; poda por idade (336 h) e por quantidade (10000); tempo limite; concorrência; armazenamento de dados de execução (ver 2.5 e 2.6) [B91][B137][B136].
+- Webhooks e endpoints: caminhos `rest`, `webhook`, `webhook-test`, `webhook-waiting`, `healthz`; `N8N_WEBHOOK_URL`; `N8N_PAYLOAD_SIZE_MAX` (16 MiB); `N8N_FORMDATA_FILE_SIZE_MAX` (200 MiB); `N8N_DISABLE_PRODUCTION_MAIN_PROCESS` [B356][B92].
+- Segurança: `N8N_BLOCK_ENV_ACCESS_IN_NODE`, `N8N_BLOCK_FILE_ACCESS_TO_N8N_FILES` (true), `N8N_RESTRICT_FILE_ACCESS_TO`, `N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS`, nó de git sem repositórios nus e sem hooks, `N8N_SECURE_COOKIE` (true), `N8N_SAMESITE_COOKIE` (lax), política de CSP, origens de postMessage do editor embutido, dias de abandono da auditoria, políticas por variável (MFA, publicar e compartilhar no espaço pessoal) [B350]; SSRF (`N8N_SSRF_PROTECTION_ENABLED` e listas) [B359]; API pública desligável [B357].
+- E-mail: `N8N_EMAIL_MODE` (smtp), `N8N_SMTP_HOST`, `PORT`, `USER`, `PASS`, `SENDER`, `SSL` (true), `STARTTLS` (true), OAuth de conta de serviço; modelos HTML de convite, redefinição de senha e avisos de compartilhamento de fluxo, credencial e projeto [B351].
+- Usuários e sessão: segredo e duração do JWT, MFA, links de convite só por e-mail, dono da instância gerenciado por variáveis (e-mail, nome, hash bcrypt da senha) [B351].
+- Logs: `N8N_LOG_LEVEL` (info; warn, error, debug), `N8N_LOG_OUTPUT` (console ou file), `N8N_LOG_FORMAT` (text ou json), tamanho (16 MB) e quantidade (100) de arquivos, local do arquivo, log de banco e de consultas lentas (1000 ms), saída do nó de código para stdout, `N8N_LOG_STREAMING_DESTINATIONS` [B352].
+- Fila: `EXECUTIONS_MODE=queue`, variáveis de Redis, saúde e travas de worker, multi-main (ver 2.7) [B95][B135].
+- Binários: ver 7.4 [B341].
+- Credenciais: sobrescritas e nome padrão (ver 6.6) [B323].
+- Há ainda páginas de variáveis para assistente de IA, motor de expressões, armazenamento externo, hooks externos, insights, licença, nós, OpenTelemetry, agendador, git, SSO, task runners, fuso e localização, fluxos e histórico de fluxos [B362].
+
+### 10.2 CLI
+
+**Observação**
+- Comandos de fluxo: executar por id, publicar (rascunho atual ou versão), despublicar um ou todos; o antigo comando de atualizar estado ativo está obsoleto [B353].
+- Exportar e importar: fluxos (com backup, versão, só publicados), credenciais (com opção de decifrar), entidades completas do banco (por exemplo para migrar de SQLite para Postgres; importação exige banco vazio ou truncar) [B353].
+- Administração: auditoria, resetar gestão de usuários, desligar MFA de um usuário, resetar LDAP, informações e limpeza de licença, desinstalar nó ou credencial da comunidade [B353].
+- Processos: principal, worker e processador de webhook são subcomandos (ver 2.7) [B135].
+- Na 3.0, a exportação e importação de fluxos e credenciais pela CLI do servidor têm descontinuação prevista; existe uma CLI cliente separada sobre a API pública [B9][B18][B336].
+
+### 10.3 Saúde e métricas
+
+**Observação**
+- `/healthz` responde 200 se a instância está no ar (não checa banco); `/healthz/readiness` responde 200 só com banco conectado e migrado; `/metrics` no formato Prometheus só self-hosted e desligado por padrão (`N8N_METRICS`) [B354][B356].
+- Prefixo `n8n_`; métricas padrão do processo ligadas; opcionais: cache, barramento de eventos, rótulos de fluxo, tipo de nó e tipo de credencial, endpoints da API com caminho, método e código, fila (intervalo 20 s), agendador (20 s), gatilhos de polling, tarefas de sistema, SSRF, cache de DNS [B356].
+- Worker em fila expõe saúde só com `QUEUE_HEALTH_CHECK_ACTIVE` [B354][B95].
+- Outras fontes de observabilidade: insights (API de resumo), log streaming, OpenTelemetry com configuração pela API [B188][B189][B157][E5].
+
+### 10.4 Backup e restauração
+
+**Observação**
+- O que guardar: a pasta do usuário (arquivo de configuração com a chave, banco SQLite, binários e dados de execução em modo filesystem), o banco Postgres com as ferramentas dele, armazenamento externo (S3, Azure), diretórios de nós personalizados e a chave de criptografia [B355].
+- Métodos: exportação pela CLI (um JSON por fluxo e por credencial; não inclui usuários, execuções, variáveis nem ajustes), cópia completa com a instância parada, volume do contêiner [B355].
+- Restauração: completar o cadastro do dono e importar, ou restaurar pasta, banco e configuração antes de iniciar. Importação sobrescreve itens com o mesmo id; fluxos importados chegam despublicados por padrão; exportação decifrada é texto puro e deve ser apagada; fazer backup antes de atualizar [B355].
+
+## 11. Catálogo de nós e integrações para cobrança no Brasil
+
+### 11.1 Catálogo em alto nível
+
+**Observação**
+- O pacote base declara 438 nós e 392 tipos de credencial; 110 arquivos de gatilho [E6]. A doc organiza a biblioteca em nós centrais, ações de apps e gatilhos; há nós da comunidade instaláveis, registro de servidores MCP, nós só de credencial e o nó HTTP para o resto [B360]. Nós de IA ficam em pacote separado (nós raiz e sub-nós) [E1][B2].
+- Grupos observados na lista do pacote, descritos pela função: lógica e fluxo (condição, roteamento, junção, filtro, lotes, espera, sub-fluxo, parar com erro, sem operação), dados (editar campos, agregar, resumir, ordenar, limitar, remover duplicatas, separar lista, renomear chaves, data e hora, criptografia, XML, HTML, Markdown, compressão, arquivos), código, HTTP e GraphQL, webhook e resposta, formulário, agendamento, e-mail (IMAP e SMTP), bancos SQL e NoSQL, filas de mensagens (AMQP, Kafka, MQTT, RabbitMQ, Redis), armazenamento de arquivos (S3, FTP, nuvens), e centenas de apps SaaS [E6].
+
+### 11.2 Integrações relevantes para um CRM de cobrança no Brasil
+
+| Necessidade | O que o catálogo tem (por função) | Fonte |
+| --- | --- | --- |
+| WhatsApp | Nó da API de nuvem oficial do WhatsApp Business (enviar, enviar e aguardar resposta, enviar modelo; mídia: enviar, baixar, excluir) e gatilho de eventos da conta; operações faltantes pelo nó HTTP com a mesma credencial. Não há conector de WhatsApp não oficial | [B361][B307][E6] |
+| E-mail | Envio SMTP com enviar e aguardar; leitura IMAP como gatilho; Gmail, Outlook, SendGrid, Mailgun, Brevo, Amazon SES, Mailchimp | [B257][B256][E6] |
+| SMS e voz | Twilio, Vonage, Plivo, MessageBird, Msg91, Sms77, Mocean | [E6] |
+| Mensageria | Telegram, Slack, Teams, Discord, Google Chat, Mattermost, Line | [E6] |
+| Planilhas | Google Sheets (nó e gatilho), Excel 365, Airtable, Baserow, NocoDB, SeaTable, Grist, leitura e escrita de planilhas em arquivo | [E6] |
+| HTTP | Nó de requisição HTTP com credenciais predefinidas e genéricas, paginação, lotes e cURL | [B320][B321] |
+| SQL | Postgres (nó e gatilho), MySQL, SQL Server, Oracle, Snowflake, BigQuery, TimescaleDB, Supabase, MongoDB, Redis | [E6] |
+| CRMs | HubSpot, Pipedrive, Salesforce, Zoho, ActiveCampaign, Copper, Keap, HighLevel, Dynamics, Freshworks, Odoo, Monday, Agile CRM, Salesmate | [E6] |
+| Pagamentos e ERP | Stripe, PayPal, Chargebee, Paddle, QuickBooks, Xero, Wise, Invoice Ninja, ERPNext | [E6] |
+| Agenda | Google Calendar (nó e gatilho), Cal e Calendly (gatilhos), Acuity (gatilho), iCalendar | [E6] |
+| Formulários | Formulário nativo e páginas de formulário; gatilhos de Typeform, JotForm, Formstack, Wufoo, Form.io, SurveyMonkey; Google Forms não aparece como nó | [B253][B254][E6] |
+| IA | Nó de OpenAI, Mistral, Perplexity e transformação por IA no pacote base; agentes e modelos (inclusive Gemini) no pacote de IA | [E6][B305] |
+
+**Inferência**
+- Gateways e bancos brasileiros (boleto, Pix, bureaus de crédito, CRMs nacionais) não aparecem como nós no pacote base; no n8n eles seriam atendidos pelo nó HTTP ou por nós da comunidade (por quê: nenhum nome desses serviços está na lista do pacote) [E6].
+- Para o VEXOR, a paridade útil é ter o nó HTTP com credencial genérica forte, WhatsApp oficial e não oficial, e-mail, SMS, planilha, SQL e IA, e não perseguir a contagem de 438 nós [E6].
+
+**Desconhecido**
+- Quais nós da comunidade cobrem serviços brasileiros e sua qualidade; janela de 24 horas e regras de modelos do WhatsApp dentro do nó (a página não trata) [B361].
+
+## 12. Funcionalidades de backend/API encontradas
+
+Uma linha por funcionalidade, para a matriz de paridade. Ids de evidência entre colchetes.
+
+| Id | Funcionalidade | Seção | Evidência |
+| --- | --- | --- | --- |
+| FB-001 | Fluxo como grafo de nós, ligações, notas e grupos de canvas | 1.1 | [B11][B196] |
+| FB-002 | Ajustes por nó: sempre produzir saída, executar uma vez, ao errar, notas | 1.1 | [B12] |
+| FB-003 | Ligações chaveadas pelo nome do nó de origem | 1.1 | [B196] |
+| FB-004 | Bloqueio otimista por `versionId` | 1.1 | [B196] |
+| FB-005 | Exportar e importar fluxo em JSON sem segredos | 1.2 | [B18] |
+| FB-006 | Pacote portável com manifesto, dependências e políticas de importação | 1.2 | [B26][E5] |
+| FB-007 | Salvamento automático com rascunho separado da versão publicada | 1.3 | [B17] |
+| FB-008 | Publicar e despublicar com nome e descrição de versão | 1.3 | [B17][B196] |
+| FB-009 | Publicação assíncrona com diff de gatilhos e estados parcial e falha | 1.3 | [B17] |
+| FB-010 | Bloqueio de edição colaborativa (um editor por vez) | 1.3 | [B17] |
+| FB-011 | Histórico de versões com restaurar, clonar, baixar e nomear | 1.3 | [B19] |
+| FB-012 | Revisão de fluxo antes de publicar | 1.3 | [B23] |
+| FB-013 | Configurações do fluxo: salvar execuções, tempo limite, fuso, fluxo de erro, política de chamadores | 1.4 | [B20][B196] |
+| FB-014 | Redação de dados de execução por fluxo e piso da instância | 1.4, 2.6 | [B148] |
+| FB-015 | Tags globais de fluxo | 1.5 | [B22] |
+| FB-016 | Pastas aninhadas por projeto | 1.5 | [B205] |
+| FB-017 | Arquivar, desarquivar e excluir fluxo | 1.5 | [B196] |
+| FB-018 | Transferir fluxo entre projetos | 1.5 | [B196] |
+| FB-019 | Modos de execução (manual, gatilho, webhook, repetição, erro, sub-fluxo, chat) | 2.1 | [B197] |
+| FB-020 | Execução parcial a partir de um nó | 2.1, 2.4 | [B30] |
+| FB-021 | Estados de execução e campos de tempo | 2.2 | [B197] |
+| FB-022 | Despublicação automática após falhas graves seguidas | 2.2 | [B91] |
+| FB-023 | Itens com JSON e binário entre nós | 2.3 | [B48] |
+| FB-024 | Ligação de itens (rastreio item de saída para item de entrada) | 2.3 | [B52] |
+| FB-025 | Dados fixados para teste | 2.3 | [B62] |
+| FB-026 | Ordem de execução v1 por ramo | 2.4 | [B40] |
+| FB-027 | Marcação de nós desatualizados | 2.4 | [B36] |
+| FB-028 | Repetir execução falha com fluxo atual ou original | 2.5 | [B31][B197] |
+| FB-029 | Parar execução e parar em lote | 2.5 | [B197] |
+| FB-030 | Tempo limite por fluxo com teto da instância | 2.5 | [B118] |
+| FB-031 | Limite de concorrência de produção com fila FIFO | 2.5 | [B136] |
+| FB-032 | Retenção e poda de execuções por idade e quantidade | 2.6 | [B137] |
+| FB-033 | Armazenamento de dados de execução em banco, disco ou objeto | 2.6 | [B139] |
+| FB-034 | Dados personalizados de execução filtráveis | 2.6 | [B33] |
+| FB-035 | Tags e votos em execuções | 2.6 | [B197] |
+| FB-036 | Modo fila com Redis, workers e processadores de webhook | 2.7 | [B135] |
+| FB-037 | Multi-main com líder para gatilhos não HTTP | 2.7 | [B135] |
+| FB-038 | Agendador durável no banco | 2.7, 5.1 | [B129] |
+| FB-039 | Ao errar: parar, continuar ou saída de erro | 3.1 | [B12] |
+| FB-040 | Tentar de novo no nó com máximo e espera | 3.1 | [B12] |
+| FB-041 | Fluxo de erro com gatilho de erro e payload padronizado | 3.2 | [B39] |
+| FB-042 | Nó de parar com erro | 3.3 | [B245] |
+| FB-043 | Condição, roteamento por regras e filtro | 4.1 | [B248][B249][B250] |
+| FB-044 | Junção de caminhos com modos de combinação | 4.2 | [B246] |
+| FB-045 | Comparação de conjuntos com quatro saídas | 4.2 | [B282] |
+| FB-046 | Laço em lotes | 4.3 | [B247] |
+| FB-047 | Espera por tempo, data, webhook ou formulário | 4.4 | [B241] |
+| FB-048 | Enviar e aguardar resposta em canais | 4.4 | [B257][B361] |
+| FB-049 | Sub-fluxos com entrada tipada e política de chamadores | 4.5 | [B242][B243] |
+| FB-050 | Converter seleção em sub-fluxo | 4.5 | [B46] |
+| FB-051 | Nó de código JavaScript e Python em sandbox | 4.6 | [B69] |
+| FB-052 | Task runners externos | 4.6 | [B128] |
+| FB-053 | Nós visuais de transformação de dados | 4.7 | [B54] |
+| FB-054 | Expressões com sandbox, tempo limite e funções de transformação | 4.8 | [B55][B112][B56] |
+| FB-055 | Gatilho manual | 5.1 | [B255] |
+| FB-056 | Agendamento por intervalo e cron com política de disparos perdidos | 5.1 | [B240] |
+| FB-057 | Gatilhos por polling | 5.1 | [B270] |
+| FB-058 | Gatilhos de eventos da própria instância | 5.1 | [B258] |
+| FB-059 | Gatilho de webhook com autenticação, CORS, IPs e modos de resposta | 5.2 | [B238] |
+| FB-060 | URL de teste e de produção de webhook | 5.2 | [B238] |
+| FB-061 | Nó de resposta ao webhook | 5.2 | [B252] |
+| FB-062 | Gatilho de formulário e páginas de formulário | 5.3 | [B253][B254] |
+| FB-063 | Gatilho de chat hospedado ou embutido | 5.3 | [B260] |
+| FB-064 | Gatilho de e-mail IMAP | 5.3 | [B256] |
+| FB-065 | Gatilhos de apps com registro automático de webhook | 5.3 | [B307] |
+| FB-066 | Gatilho de servidor MCP por fluxo | 5.3 | [B266] |
+| FB-067 | Ativação em lote no início da instância | 5.4 | [B105] |
+| FB-068 | Credenciais com tipos, esquema de campos e nome padrão | 6.1 | [B317][E5] |
+| FB-069 | Teste de credencial ao salvar e por id | 6.1 | [B317][E5] |
+| FB-070 | Domínios permitidos por credencial para o nó HTTP | 6.1 | [B317] |
+| FB-071 | Expressões em campos de credencial | 6.1 | [B317] |
+| FB-072 | Credenciais cifradas com chave da instância | 6.2 | [B324] |
+| FB-073 | Rotação de chaves de dados | 6.2 | [B325][E4] |
+| FB-074 | Compartilhar credencial com usuário ou projeto ("pode usar") | 6.3 | [B319] |
+| FB-075 | Transferir credencial entre projetos | 6.3 | [E5] |
+| FB-076 | OAuth1 genérico | 6.4 | [B321] |
+| FB-077 | OAuth2 genérico (código, credenciais do cliente, PKCE) | 6.4 | [B321] |
+| FB-078 | Rotas de autorização e retorno OAuth e desconexão de token | 6.4 | [E4] |
+| FB-079 | Credenciais predefinidas reaproveitadas no nó HTTP | 6.5 | [B322] |
+| FB-080 | Credenciais genéricas básica, digest, cabeçalho, bearer, query e personalizada | 6.5 | [B321] |
+| FB-081 | Credencial personalizada simplificada com modelo e URL de teste | 6.5 | [B321] |
+| FB-082 | Certificados SSL de cliente | 6.5 | [B321] |
+| FB-083 | Proteção SSRF | 6.5 | [B359] |
+| FB-084 | Credenciais de usuário final | 6.6 | [B327] |
+| FB-085 | Segredos externos em cofres | 6.6 | [B326] |
+| FB-086 | Sobrescrita global de credenciais | 6.6 | [B328] |
+| FB-087 | Políticas de tipos de credencial e de nó | 6.6 | [E5] |
+| FB-088 | Variáveis globais e de projeto | 7.1 | [B337][E5] |
+| FB-089 | Dados estáticos do fluxo | 7.2 | [B338] |
+| FB-090 | Tabelas de dados com colunas, linhas, upsert e limite de tamanho | 7.3 | [B340][E5] |
+| FB-091 | Modos de armazenamento de binários | 7.4 | [B341][B339] |
+| FB-092 | Controle de versão por git com push e pull | 7.5 | [B343][E5] |
+| FB-093 | Ambientes por instância e ramo | 7.5 | [B344] |
+| FB-094 | Publicação automática no pull | 7.5 | [B343] |
+| FB-095 | Promoções entre instâncias | 7.5 | [E5] |
+| FB-096 | Papéis globais dono, admin, membro e usuário de chat | 8.1 | [B330] |
+| FB-097 | Convite, reenvio e exclusão de usuário com transferência | 8.1 | [B346] |
+| FB-098 | Projetos pessoais e de equipe | 8.2 | [B331][E5] |
+| FB-099 | Papéis de projeto admin, editor e visualizador | 8.2 | [B329] |
+| FB-100 | Papéis personalizados por escopos recurso:ação | 8.2 | [B333][E5] |
+| FB-101 | Mapeamento de papéis por provedor de identidade | 8.2 | [E5] |
+| FB-102 | Compartilhar fluxo no espaço pessoal | 8.3 | [B347] |
+| FB-103 | Políticas de segurança da instância | 8.3 | [B348] |
+| FB-104 | Auditoria de segurança em cinco categorias | 8.4 | [B345] |
+| FB-105 | Log streaming para webhook, syslog e Sentry | 8.4 | [B189][E5] |
+| FB-106 | SSO SAML e OIDC, LDAP e MFA (registro) | 8.5 | [B362][E5] |
+| FB-107 | Chaves de API com expiração e escopos | 8.6 | [B334][E4] |
+| FB-108 | API pública versionada em /api/v1 com chave no cabeçalho | 9.1 | [B334][E5] |
+| FB-109 | Paginação por cursor | 9.1 | [B335] |
+| FB-110 | Idempotência por cabeçalho | 9.1 | [E5] |
+| FB-111 | Descoberta de capacidades por chave | 9.1 | [E5] |
+| FB-112 | API de fluxos | 9.2 | [E5] |
+| FB-113 | API de execuções | 9.3 | [E5] |
+| FB-114 | API de credenciais sem segredos na leitura | 9.4 | [E5] |
+| FB-115 | API de tags, usuários, projetos, variáveis, pastas e papéis | 9.5 | [E5] |
+| FB-116 | API de auditoria, controle de versão e tabelas de dados | 9.6 | [E5] |
+| FB-117 | API de insights | 9.6 | [E5] |
+| FB-118 | API de avaliações | 9.6 | [E5] |
+| FB-119 | API de pacotes da comunidade | 9.6 | [E5] |
+| FB-120 | Configuração por variáveis de ambiente com sufixo de arquivo | 10.1 | [B349] |
+| FB-121 | Banco SQLite ou Postgres | 10.1 | [B349] |
+| FB-122 | E-mail SMTP da instância com modelos | 10.1 | [B351] |
+| FB-123 | Logs com nível, saída e formato | 10.1 | [B352] |
+| FB-124 | CLI de execução, publicação, exportação, importação e administração | 10.2 | [B353] |
+| FB-125 | Saúde e prontidão | 10.3 | [B354] |
+| FB-126 | Métricas Prometheus | 10.3 | [B356] |
+| FB-127 | Rastreamento OpenTelemetry | 10.3 | [B157][E5] |
+| FB-128 | Backup e restauração documentados | 10.4 | [B355] |
+| FB-129 | Catálogo de nós e credenciais | 11.1 | [E6][B360] |
+| FB-130 | Nós da comunidade instaláveis | 11.1 | [B360][E5] |
+| FB-131 | Integração WhatsApp oficial | 11.2 | [B361] |
+| FB-132 | Integrações de e-mail, SMS, planilhas, SQL, CRM, agenda, formulários e IA | 11.2 | [E6] |
+| FB-133 | Servidor MCP da instância | 0 | [B225] |
+| FB-134 | Insights de execuções e tempo economizado | 3.2, 10.3 | [B188] |
+
+## Desconhecidos em aberto
+
+Consolidado das seções 0 a 11. Os itens de 0 a 5 já aparecem nas seções; aqui estão os mais relevantes para a paridade.
+
+- Data de lançamento da 3.0 e quais recursos em preview ficam estáveis (seção 0).
+- Formato do id de fluxo, limites de nós por fluxo e de tamanho do JSON (1.1).
+- Diagrama oficial de transições de estado da execução; semântica de "integrated" e "internal" (2.1, 2.2).
+- Tempo limite em modo fila e se execuções em espera contam para a concorrência (2.5).
+- Política de espera em "tentar de novo" e limite de tentativas (3.1).
+- Ordem de execução com vários gatilhos no mesmo fluxo (2.4, 5.4).
+- Algoritmo de criptografia das credenciais e formato cifrado no banco (6.2).
+- Caminho completo da URL de retorno OAuth e política de renovação de token, inclusive o que acontece quando falha (6.4).
+- Se o teste de credencial bloqueia o salvamento (6.1).
+- Intervalo de atualização de segredos externos (6.6).
+- Tipos aceitos em variáveis além de texto e cota de variáveis (7.1).
+- Onde o modo `database` guarda binários (7.4).
+- Licença e estabilidade das promoções entre instâncias; formato dos arquivos no repositório git (7.5).
+- Registro de auditoria consultável dentro do produto (8.4).
+- Prazos de expiração de chaves de API; permissões de uma chave sem escopos fora do Enterprise além de "acesso total" (8.6).
+- Política de versionamento da API e limites de taxa (9.1).
+- Nós da comunidade para serviços brasileiros (Pix, boleto, bureaus) e regras de janela e modelos do WhatsApp dentro do nó (11.2).
+- URLs das fontes B1 a B316: o agente anterior foi interrompido antes de gravar o ledger dessas fontes. Os ids continuam válidos no texto, mas a URL exata de cada um precisa ser recuperada.
+
+## Ledger de fontes
+
+Fontes acrescentadas nesta rodada (acesso em 2026-10-29). Os ids B1 a B316 foram usados nas seções 0 a 5, mas o ledger deles não foi gravado (ver "Desconhecidos em aberto").
+
+| Id | Fonte |
+| --- | --- |
+| B317 | https://docs.n8n.io/build/understand-workflows/create-and-edit-credentials |
+| B318 | https://docs.n8n.io/administer/manage-credentials |
+| B319 | https://docs.n8n.io/administer/manage-credentials/share-credentials-securely |
+| B320 | https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.httprequest |
+| B321 | https://docs.n8n.io/integrations/builtin/credentials/httprequest |
+| B322 | https://docs.n8n.io/integrations/builtin/custom-api-actions-for-existing-nodes |
+| B323 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/credentials |
+| B324 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/configuration-examples/set-a-custom-encryption-key |
+| B325 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/security/rotate-encryption-keys |
+| B326 | https://docs.n8n.io/administer/manage-credentials/use-external-secret-stores |
+| B327 | https://docs.n8n.io/administer/manage-credentials/end-user-credentials |
+| B328 | https://docs.n8n.io/administer/manage-credentials/credential-overwrites |
+| B329 | https://docs.n8n.io/administer/manage-users-and-access/set-permissions-and-roles-rbac/see-available-roles |
+| B330 | https://docs.n8n.io/administer/manage-users-and-access/understand-instance-roles |
+| B331 | https://docs.n8n.io/administer/manage-users-and-access/set-permissions-and-roles-rbac/organize-work-in-projects |
+| B332 | https://docs.n8n.io/administer/manage-users-and-access/set-permissions-and-roles-rbac/create-custom-roles |
+| B333 | https://docs.n8n.io/administer/manage-users-and-access/set-permissions-and-roles-rbac/create-custom-roles/create-custom-project-roles |
+| B334 | https://docs.n8n.io/connect/n8n-api/authentication |
+| B335 | https://docs.n8n.io/connect/n8n-api/pagination |
+| B336 | https://docs.n8n.io/connect/n8n-api |
+| B337 | https://docs.n8n.io/build/code-in-n8n/define-custom-variables |
+| B338 | https://docs.n8n.io/build/code-in-n8n/cookbook/built-in-methods-and-variables-examples/getworkflowstaticdata |
+| B339 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/scaling/handle-binary-data |
+| B340 | https://docs.n8n.io/build/work-with-data/data-tables |
+| B341 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/binary-data |
+| B342 | https://docs.n8n.io/administer/use-source-control-and-environments/understand-source-control |
+| B343 | https://docs.n8n.io/administer/use-source-control-and-environments/push-and-pull-changes |
+| B344 | https://docs.n8n.io/administer/use-source-control-and-environments/work-with-environments |
+| B345 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/security/run-security-audits |
+| B346 | https://docs.n8n.io/administer/manage-users-and-access/add-and-remove-users |
+| B347 | https://docs.n8n.io/build/manage-workflows/share-with-others |
+| B348 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/security/manage-security-policies |
+| B349 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/database |
+| B350 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/security |
+| B351 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/user-management-and-2fa |
+| B352 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/logs |
+| B353 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/use-the-command-line |
+| B354 | https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/monitor-n8n |
+| B355 | https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/backup-and-restore |
+| B356 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/endpoints |
+| B357 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/security/disable-the-public-api |
+| B358 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/basic-configuration/use-environment-variables/deployment |
+| B359 | https://docs.n8n.io/deploy/host-n8n/configure-n8n/security/enable-ssrf-protection |
+| B360 | https://docs.n8n.io/integrations |
+| B361 | https://docs.n8n.io/integrations/builtin/app-nodes/n8n-nodes-base.whatsapp |
+| B362 | Mapas do site: https://docs.n8n.io/administer/sitemap-pages.xml, https://docs.n8n.io/connect/sitemap-pages.xml e https://docs.n8n.io/deploy/sitemap-pages.xml (existência de páginas de SAML, OIDC, LDAP, dois fatores, JWE e variáveis por categoria) |
+
+Evidências de pacote citadas nesta rodada: [E1] proveniência, [E4] rotas internas, [E5] especificação OpenAPI 1.1.1, [E6] catálogo de nós e credenciais, todas em `00-ledger-evidencias.md`.

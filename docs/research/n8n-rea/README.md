@@ -21,6 +21,8 @@ Pasta de trabalho da pesquisa iniciada em 28/10/2026. Objetivo: levar o VEXOR ao
 | `03-inventario-vexor.md` | O que o VEXOR já tem (telas, editor, API Nest, worker, Prisma, conectores, testes) | agente D |
 | `04-artefatos-rea.md` | Observações tiradas dos pacotes publicados com o REA (rotas, catálogo de nós e credenciais, superfícies de API) | orquestrador |
 | `05-matriz-paridade.md` | Fase 2: funcionalidade do n8n, existe no VEXOR?, prioridade, esforço, evidências | orquestrador |
+| `06-editor-rea-aprofundado.md` | Painel do nó, canvas, execuções e logs em detalhe, com especificação para o VEXOR | agente R1 |
+| `07-backend-rea-aprofundado.md` | Ciclo de vida da execução, espera, ativação, erros, fila, credenciais, OAuth e permissões, com especificação para o VEXOR | agente R2 |
 
 ## Ambiente
 
