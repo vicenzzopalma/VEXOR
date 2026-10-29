@@ -1,5 +1,5 @@
 'use client';
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type DragEvent } from 'react';
 import { Plus, X } from 'lucide-react';
 import {
   leadVariables,
@@ -10,6 +10,10 @@ import {
   type WorkflowNode,
 } from '@eimax/workflow-schema';
 import { resolveTemplate } from '@eimax/workflow-engine';
+
+/** Tipos de arraste usados pelo detalhe do bloco ao levar um campo da Entrada até um parâmetro. */
+export const VARIABLE_DRAG_TYPE = 'application/x-eimax-variable';
+export const BLOCKED_DRAG_TYPE = 'application/x-eimax-blocked-field';
 
 export function VariableInput({
   label,
@@ -28,6 +32,7 @@ export function VariableInput({
 }) {
   const id = useId();
   const [open, setOpen] = useState(false);
+  const [dropHint, setDropHint] = useState('');
   const focus = useRef({ part: -1, offset: 0 });
   const parts = templateParts(value);
   if (!parts.length || parts.at(-1)?.kind === 'variable') parts.push({ kind: 'text', value: '' });
@@ -54,7 +59,9 @@ export function VariableInput({
   ];
   const update = (updated: typeof parts) => {
     const next = serialize(updated);
-    if (next.length <= maxLength) onChange(next);
+    if (next.length > maxLength) return false;
+    onChange(next);
+    return true;
   };
   const insert = (path: string) => {
     const { part, offset } = focus.current;
@@ -68,9 +75,44 @@ export function VariableInput({
         { kind: 'text', value: text.slice(offset) },
       );
     } else parts.push({ kind: 'variable', value: path });
-    update(parts);
+    const applied = update(parts);
     setOpen(false);
     focus.current.part = -1;
+    return applied;
+  };
+  const dropHere = 'Solte para inserir a variável aqui.';
+  const dragOver = (event: DragEvent<HTMLInputElement>) => {
+    const types = [...event.dataTransfer.types];
+    if (types.includes(VARIABLE_DRAG_TYPE)) {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      setDropHint(dropHere);
+    } else if (types.includes(BLOCKED_DRAG_TYPE)) {
+      // Sem preventDefault o navegador recusa a soltura; o texto explica o motivo.
+      event.dataTransfer.dropEffect = 'none';
+      setDropHint(
+        'Este campo não pode ser usado aqui: só campos da lista de variáveis do editor são aceitos.',
+      );
+    }
+  };
+  const drop = (event: DragEvent<HTMLInputElement>, index: number) => {
+    const path = event.dataTransfer.getData(VARIABLE_DRAG_TYPE);
+    if (!path && !event.dataTransfer.types.includes(BLOCKED_DRAG_TYPE)) return;
+    event.preventDefault();
+    if (!path || !choices.some((c) => c.path === path)) {
+      setDropHint('Este campo não está disponível para este bloco: ele precisa vir de um bloco anterior.');
+      return;
+    }
+    const input = event.currentTarget;
+    focus.current = {
+      part: index,
+      offset: document.activeElement === input ? (input.selectionStart ?? 0) : input.value.length,
+    };
+    setDropHint(
+      insert(path)
+        ? ''
+        : `A variável não foi inserida: o texto passaria do limite de ${maxLength} caracteres.`,
+    );
   };
   const preview = resolveTemplate(value, sampleLead);
   return (
@@ -115,9 +157,14 @@ export function VariableInput({
               onSelect={(e) => {
                 focus.current = { part: index, offset: e.currentTarget.selectionStart ?? 0 };
               }}
+              onDragOver={dragOver}
+              // A dica de soltura recusada continua visível; a de "solte aqui" some ao sair do campo.
+              onDragLeave={() => setDropHint((hint) => (hint === dropHere ? '' : hint))}
+              onDrop={(e) => drop(e, index)}
               onChange={(e) => {
                 parts[index].value = e.target.value;
                 update(parts);
+                setDropHint('');
               }}
             />
           ),
@@ -135,6 +182,11 @@ export function VariableInput({
             </button>
           ))}
         </div>
+      )}
+      {dropHint && (
+        <span className="field-helper variable-drop-hint" role="status">
+          {dropHint}
+        </span>
       )}
       <span className="field-helper">
         Prévia com dados de exemplo: {preview.text || '—'}

@@ -73,6 +73,7 @@ import { WorkflowBlock, type FlowNode, type NodeRunState } from './workflow-node
 import { Inspector } from './inspector';
 import { useEditorState } from './editor-state';
 import { RunLog } from './run-log';
+import { NodeDetailBody, detailShortcut, stepStatusLabel } from './node-data-view';
 
 const nodeTypes = { workflow: WorkflowBlock };
 /** Tamanho do bloco no canvas e espaço horizontal entre colunas (rótulos de ligação e de saída cabem no vão). */
@@ -272,17 +273,6 @@ const saveLabels = {
   error: 'Tentar salvar',
   conflict: 'Conflito de edição',
 };
-const stepStatusLabel = (status: string) =>
-  ({
-    success: 'Concluída',
-    failed: 'Falhou',
-    skipped: 'Não executada',
-    COMPLETED: 'Concluída',
-    FAILED: 'Falhou',
-    QUEUED: 'Na fila',
-    RUNNING: 'Em andamento',
-    SUSPENDED: 'Aguardando',
-  })[status] ?? status;
 const uid = () => crypto.randomUUID();
 export function Editor({ id }: { id: string }) {
   return (
@@ -318,18 +308,43 @@ function EditorWorkspace({ id }: { id: string }) {
   const [realRuns, setRealRuns] = useState<ExecutionRecord[]>([]);
   const [realRunId, setRealRunId] = useState<string>();
   const [realRunError, setRealRunError] = useState('');
+  const [realRunsLoaded, setRealRunsLoaded] = useState(false);
+  const realRunsSignature = useRef('');
+  // Origem padrão do detalhe aberto antes da primeira resposta da lista de execuções.
+  const pendingDetailSource = useRef(false);
   useEffect(() => {
     let active = true;
     const load = () =>
       api<ExecutionRecord[]>(`/workflows/${id}/executions`)
         .then((rows) => {
           if (active) {
-            setRealRuns(rows);
+            // A lista é consultada a cada 2 s; só troca a referência quando algo mudou de fato, para o
+            // detalhe do bloco não refazer serialização, tabela e esquema sem necessidade.
+            const signature = JSON.stringify(
+              rows.map((r) => [
+                r.id,
+                r.status,
+                r.attempt,
+                r.stepsCount,
+                r.steps?.length,
+                r.finishedAt,
+                r.errorCode,
+                r.checkpoints?.map((c) => c.status),
+              ]),
+            );
+            if (signature !== realRunsSignature.current) {
+              realRunsSignature.current = signature;
+              setRealRuns(rows);
+            }
             setRealRunError('');
+            setRealRunsLoaded(true);
           }
         })
         .catch((error) => {
-          if (active) setRealRunError(error.message);
+          if (active) {
+            setRealRunError(error.message);
+            setRealRunsLoaded(true);
+          }
         });
     void load();
     const timer = setInterval(load, 2000);
@@ -418,7 +433,6 @@ function EditorWorkspace({ id }: { id: string }) {
   const activeNode = flow?.nodes.find((n) => n.id === selected[0]);
   const detailNode = flow?.nodes.find((n) => n.id === detailNodeId);
   const detailRun = detailSource === 'simulation' ? run : realRuns.find((item) => item.id === detailSource);
-  const detailStep = detailRun?.steps.find((step) => step.nodeId === detailNodeId);
   const shownReal = realRunId ? realRuns.find((r) => r.id === realRunId) : undefined;
   /**
    * Estado de cada bloco e ramo tomado por cada condição, vindos da execução real escolhida
@@ -507,9 +521,15 @@ function EditorWorkspace({ id }: { id: string }) {
       setInspector(true);
       setDetailNodeId(nodeId);
       setDetailSource(realRunId ?? (run ? 'simulation' : (realRuns[0]?.id ?? '')));
+      pendingDetailSource.current = !realRunId && !run && !realRunsLoaded;
     },
-    [run, realRuns, realRunId],
+    [run, realRuns, realRunId, realRunsLoaded],
   );
+  useEffect(() => {
+    if (!realRunsLoaded || !pendingDetailSource.current) return;
+    pendingDetailSource.current = false;
+    setDetailSource((current) => current || (realRuns[0]?.id ?? ''));
+  }, [realRunsLoaded, realRuns]);
   const removeItems = useCallback(
     (nodeIds: string[], edgeIds: string[]) => {
       change((f) => ({
@@ -1547,86 +1567,74 @@ function EditorWorkspace({ id }: { id: string }) {
           wide
           onClose={() => setDetailNodeId(undefined)}
         >
-          <div className="flow-detail">
-            <div className="flow-detail-source">
-              <label htmlFor="flow-detail-source">Dados da etapa</label>
-              <select
-                id="flow-detail-source"
-                value={detailSource}
-                onChange={(event) => setDetailSource(event.target.value)}
-              >
-                <option value="">Nenhuma execução selecionada</option>
-                {run && (
-                  <option value="simulation">
-                    Simulação desta sessão · {new Date(run.createdAt).toLocaleString('pt-BR')}
-                  </option>
-                )}
-                {realRuns.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    Execução real · {new Date(item.createdAt).toLocaleString('pt-BR')} ·{' '}
-                    {stepStatusLabel(item.status)}
-                  </option>
-                ))}
-              </select>
-              {detailRun && detailSource === 'simulation' && (
-                <p>
-                  Os dados refletem o fluxo no momento da simulação e podem diferir das alterações
-                  posteriores.
-                </p>
-              )}
-              {detailRun && detailSource !== 'simulation' && (
-                <p>
-                  Os dados pertencem à versão publicada usada na execução e podem diferir do rascunho atual.
-                </p>
-              )}
-            </div>
-            <div className="flow-detail-grid">
-              <section className="flow-detail-data" aria-label="Entrada">
-                <h3>Entrada</h3>
-                {detailStep && detailStep.input != null ? (
-                  <pre>{JSON.stringify(detailStep.input, null, 2)}</pre>
-                ) : (
+          <NodeDetailBody
+            workflow={flow}
+            node={detailNode}
+            steps={detailRun?.steps}
+            loading={!realRunsLoaded && !detailRun}
+            onNavigate={(nodeId) => {
+              setSelected([nodeId]);
+              setSelectedEdges([]);
+              setDetailNodeId(nodeId);
+            }}
+            source={
+              <div className="flow-detail-source">
+                <label htmlFor="flow-detail-source">Dados da etapa</label>
+                <select
+                  id="flow-detail-source"
+                  value={detailSource}
+                  onChange={(event) => {
+                    pendingDetailSource.current = false;
+                    setDetailSource(event.target.value);
+                  }}
+                >
+                  <option value="">Nenhuma execução selecionada</option>
+                  {run && (
+                    <option value="simulation">
+                      Simulação desta sessão · {new Date(run.createdAt).toLocaleString('pt-BR')}
+                    </option>
+                  )}
+                  {realRuns.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      Execução real · {new Date(item.createdAt).toLocaleString('pt-BR')} ·{' '}
+                      {stepStatusLabel(item.status)}
+                    </option>
+                  ))}
+                </select>
+                {detailRun && detailSource === 'simulation' && (
                   <p>
-                    Sem entrada registrada para este bloco. Execute uma simulação ou selecione uma execução.
+                    Os dados refletem o fluxo no momento da simulação e podem diferir das alterações
+                    posteriores.
                   </p>
                 )}
-              </section>
-              <section className="flow-detail-parameters" aria-label="Parâmetros">
-                <h3>Parâmetros</h3>
-                <Inspector
-                  node={detailNode}
-                  workflow={flow}
-                  readOnly={readOnly}
-                  showClose={false}
-                  onClose={() => setDetailNodeId(undefined)}
-                  onUpdate={(node) =>
-                    change((f) => ({ ...f, nodes: f.nodes.map((n) => (n.id === node.id ? node : n)) }))
-                  }
-                  onDelete={() => {
-                    remove();
-                    setDetailNodeId(undefined);
-                  }}
-                  onDuplicate={() => {
-                    duplicate();
-                    setDetailNodeId(undefined);
-                  }}
-                />
-              </section>
-              <section className="flow-detail-data" aria-label="Saída">
-                <h3>Saída</h3>
-                {detailStep && detailStep.output != null ? (
-                  <>
-                    <p>
-                      Estado: {stepStatusLabel(detailStep.status)} · {detailStep.durationMs} ms
-                    </p>
-                    <pre>{JSON.stringify(detailStep.output, null, 2)}</pre>
-                  </>
-                ) : (
-                  <p>Sem saída registrada para este bloco nesta execução.</p>
+                {detailRun && detailSource !== 'simulation' && (
+                  <p>
+                    Os dados pertencem à versão publicada usada na execução e podem diferir do rascunho atual.
+                  </p>
                 )}
-              </section>
-            </div>
-          </div>
+              </div>
+            }
+            parameters={
+              <Inspector
+                node={detailNode}
+                workflow={flow}
+                readOnly={readOnly}
+                showClose={false}
+                onClose={() => setDetailNodeId(undefined)}
+                onUpdate={(node) =>
+                  change((f) => ({ ...f, nodes: f.nodes.map((n) => (n.id === node.id ? node : n)) }))
+                }
+                onDelete={() => {
+                  remove();
+                  setDetailNodeId(undefined);
+                }}
+                onDuplicate={() => {
+                  duplicate();
+                  setDetailNodeId(undefined);
+                }}
+              />
+            }
+          />
         </Dialog>
       )}
       <footer className="editor-statusbar">
@@ -1881,7 +1889,9 @@ function EditorWorkspace({ id }: { id: string }) {
           </ol>
           <div className="info-box">
             Shift + arrastar seleciona vários blocos. Ctrl D duplica. Delete exclui. Ctrl Z desfaz. As
-            alterações são salvas automaticamente no servidor.
+            alterações são salvas automaticamente no servidor. No detalhe do bloco (duplo clique), as teclas{' '}
+            {detailShortcut} vão para o bloco anterior e o próximo, fora dos campos de texto; arraste um campo
+            da Entrada até um parâmetro de texto para inserir a variável.
           </div>
         </Dialog>
       )}
