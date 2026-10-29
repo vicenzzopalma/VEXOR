@@ -22,8 +22,11 @@ Fontes de documentação pública: ids A1..An em `01-editor-frontend-docs.md` e 
 | Id | Tipo | Alvo | Resultado |
 | --- | --- | --- | --- |
 | E9 | REA + leitura direta | editor: painel do nó, canvas, execuções, logs (1 a 3 chunks por análise, heap 512 MB) | quatro análises e cinco vistas/rastreios; ids completos no "Ledger R1" de `06-editor-rea-aprofundado.md`; pacote exportado `D:\VEXOR\_ref
-8n\evidence1-editor-rea-bundle.json` |
+8n\evidence
+1-editor-rea-bundle.json` |
 | E10 | REA + leitura direta | servidor: ciclo de vida, espera, recuperação, ativação, fila, credenciais, OAuth, permissões | `ev_0f607cdd...`, `ev_8312e066...` e rastreios; ids completos no "Ledger R2" de `07-backend-rea-aprofundado.md` |
 
 Limite comum às duas rodadas: o REA confirmou estrutura e campos, mas não indexa textos soltos; o comportamento fino veio de leitura direta e está rotulado assim. Nada foi executado. Os fontes extraídos dos mapas de origem para leitura foram apagados ao fim da rodada.
+| E11 | código-fonte (leitura) | repositório oficial `github.com/n8n-io/n8n`, commit `1faf2acf9e8a7f5e829db6271532880f64751c82` (29/10/2026) | clone raso e esparso em `D:\VEXOR\_ref
+8nepo` (editor, workflow, core, cli, db, engine): 9.790 arquivos. Licença: Sustainable Use License; os 867 arquivos com `.ee` no nome ou na pasta têm licença enterprise e não podem ser lidos nem usados. Uso permitido aqui: ler fonte e testes para escrever especificação; quem implementa no VEXOR não lê o fonte |
 

@@ -28,4 +28,6 @@ Pasta de trabalho da pesquisa iniciada em 28/10/2026. Objetivo: levar o VEXOR ao
 
 - REA 6.7.0 (`rea-agents`, MIT) instalado com `npm install -g rea-agents`; MCP registrado com `claude mcp add --scope user rea -- cmd /c rea mcp` (precisa de `MSYS_NO_PATHCONV=1` no Git Bash).
 - Pacotes de referência: `D:\VEXOR\_ref\n8n\tarballs` (tarballs do npm) e `D:\VEXOR\_ref\n8n\pkg\<pacote>` (extraídos). Evidências do REA em `D:\VEXOR\_ref\n8n\evidence`.
+- Código-fonte oficial do n8n (leitura para especificação): `D:\VEXOR\_ref
+8nepo`, ver E11 no ledger. Arquivos `.ee` ficam fora. Agentes que implementam no VEXOR recebem só a especificação, nunca o fonte.
 - Parte C do plano (comportamento em execução com `capture_browser_scenario`) não foi feita por falta de memória; fica registrada como desconhecido onde a documentação não resolve.
