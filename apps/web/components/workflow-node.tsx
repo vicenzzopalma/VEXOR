@@ -38,11 +38,11 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
                   : 'Quando um lead chegar';
   return (
     <div
-      className={`n8n-node flow-node ${trigger ? 'is-trigger' : ''} ${selected ? 'is-selected' : ''} ${data.invalid ? 'is-invalid' : ''} execution-${data.execution ?? 'idle'}`}
+      className={`vx-node flow-node ${trigger ? 'is-trigger' : ''} ${selected ? 'is-selected' : ''} ${data.invalid ? 'is-invalid' : ''} execution-${data.execution ?? 'idle'}`}
       data-testid={`block-${node.id}`}
     >
       {!trigger && <Handle type="target" position={Position.Top} aria-label={`Entrada de ${node.name}`} />}
-      {trigger && <Zap className="n8n-trigger-bolt" size={15} aria-hidden="true" />}
+      {trigger && <Zap className="vx-trigger-bolt" size={15} aria-hidden="true" />}
       <button
         type="button"
         className="flow-node-open"
@@ -63,7 +63,7 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
           <AlertCircle size={13} className="danger-text" />
         ) : null}
       </span>
-      <div className="n8n-node-label">
+      <div className="vx-node-label">
         <strong>{node.name}</strong>
         <small>{summary}</small>
       </div>

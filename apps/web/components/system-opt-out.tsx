@@ -109,15 +109,15 @@ function Step({ data, selected }: NodeProps<StepNode>) {
   const at = (i: number) => `${((i + 1) / (outs.length + 1)) * 100}%`;
   return (
     <div
-      className={`n8n-node${data.trigger ? ' is-trigger' : ''}${selected ? ' is-selected' : ''}`}
+      className={`vx-node${data.trigger ? ' is-trigger' : ''}${selected ? ' is-selected' : ''}`}
       style={{ '--tone': data.tone } as CSSProperties}
       title={data.badgeText}
     >
-      {!data.trigger && <Handle type="target" position={Position.Left} className="n8n-handle-in" />}
-      {data.trigger && <Zap className="n8n-trigger-bolt" size={15} aria-hidden="true" />}
+      {!data.trigger && <Handle type="target" position={Position.Left} className="vx-handle-in" />}
+      {data.trigger && <Zap className="vx-trigger-bolt" size={15} aria-hidden="true" />}
       <Icon size={40} strokeWidth={1.6} aria-hidden="true" />
       {data.badge && (
-        <span className={`n8n-node-badge ${data.badge}`} aria-label={data.badgeText}>
+        <span className={`vx-node-badge ${data.badge}`} aria-label={data.badgeText}>
           {data.badge === 'ok' ? <Check size={11} strokeWidth={3} /> : <AlertTriangle size={11} strokeWidth={2.6} />}
         </span>
       )}
@@ -128,17 +128,17 @@ function Step({ data, selected }: NodeProps<StepNode>) {
               id={o.id}
               type="source"
               position={Position.Right}
-              className="n8n-handle-out"
+              className="vx-handle-out"
               style={{ top: at(i) }}
             />
           ))
-        : !data.terminal && <Handle type="source" position={Position.Right} className="n8n-handle-out" />}
+        : !data.terminal && <Handle type="source" position={Position.Right} className="vx-handle-out" />}
       {outs.map((o, i) => (
-        <span key={`${o.id}-label`} className="n8n-out-label" style={{ top: at(i) }}>
+        <span key={`${o.id}-label`} className="vx-out-label" style={{ top: at(i) }}>
           {o.label}
         </span>
       ))}
-      <div className="n8n-node-label">
+      <div className="vx-node-label">
         <strong>{data.title}</strong>
         {data.subtitle && <small>{data.subtitle}</small>}
       </div>
@@ -225,7 +225,7 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
 
   if (!data)
     return (
-      <section aria-busy={!error} className="n8n-flow n8n-flow-loading">
+      <section aria-busy={!error} className="vx-flow vx-flow-loading">
         <p>{error || 'Carregando o fluxo de descadastro…'}</p>
         {error && <Button onClick={load}>Tentar novamente</Button>}
       </section>
@@ -340,10 +340,10 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
 
   const optOutEvents = data.events.filter((e) => e.classification === 'OPT_OUT');
   const reviewEvents = data.events.filter((e) => e.status === 'REVIEW');
-  const chip = (status: string) => <span className={`n8n-chip ${tone(status)}`}>{labels[status] ?? status}</span>;
+  const chip = (status: string) => <span className={`vx-chip ${tone(status)}`}>{labels[status] ?? status}</span>;
   const items = (list: OptOutEvent[], empty: string, extra?: (e: OptOutEvent) => ReactNode) =>
     list.length ? (
-      <ol className="n8n-items">
+      <ol className="vx-items">
         {list.slice(0, 15).map((e) => (
           <li key={e.id}>
             <div>
@@ -356,17 +356,17 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
         ))}
       </ol>
     ) : (
-      <p className="n8n-empty">{empty}</p>
+      <p className="vx-empty">{empty}</p>
     );
   const param = (label: string, value: ReactNode) => (
-    <div className="n8n-param" key={label}>
-      <span className="n8n-param-label">{label}</span>
-      <div className="n8n-field">{value}</div>
+    <div className="vx-param" key={label}>
+      <span className="vx-param-label">{label}</span>
+      <div className="vx-field">{value}</div>
     </div>
   );
   const panes: Record<string, { input: ReactNode; params: ReactNode; output: ReactNode }> = {
     in: {
-      input: <p className="n8n-empty">Gatilho: o fluxo começa a cada mensagem individual recebida.</p>,
+      input: <p className="vx-empty">Gatilho: o fluxo começa a cada mensagem individual recebida.</p>,
       params: (
         <>
           {data.connections.map((c) =>
@@ -397,7 +397,7 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
           {param('Tolerância a erro de digitação', data.typoRule)}
           {param(
             'Frases que descadastram (sem acento, maiúscula ou pontuação)',
-            <div className="n8n-chips">
+            <div className="vx-chips">
               {data.phrases.map((p) => (
                 <span key={p}>{p}</span>
               ))}
@@ -422,7 +422,7 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
     review: {
       input: items(reviewEvents, 'Nada aguardando revisão.', (e) =>
         role !== 'viewer' ? (
-          <div className="n8n-actions-row">
+          <div className="vx-actions-row">
             <Button variant="primary" disabled={busy} onClick={() => resolve(e, 'CONFIRM')}>
               Confirmar descadastro
             </Button>
@@ -443,9 +443,9 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
       ),
     },
     other: {
-      input: <p className="n8n-empty">{other} mensagens sem pedido de saída.</p>,
+      input: <p className="vx-empty">{other} mensagens sem pedido de saída.</p>,
       params: param('Ação', 'Nenhuma. A mensagem segue apenas o roteamento normal já configurado.'),
-      output: <p className="n8n-empty">Esta etapa encerra o fluxo.</p>,
+      output: <p className="vx-empty">Esta etapa encerra o fluxo.</p>,
     },
     esfera: {
       input: items(optOutEvents, 'Nada para registrar.'),
@@ -462,7 +462,7 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
       output: items(data.events, 'Nada registrado ainda.', (e) => (
         <>
           {chip(e.status)}
-          {e.errorCode && <small className="n8n-error">{e.errorCode}</small>}
+          {e.errorCode && <small className="vx-error">{e.errorCode}</small>}
         </>
       )),
     },
@@ -481,7 +481,7 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
             </>,
           )}
           {param('Ativada em', `${when(data.activatedAt)} · pedidos anteriores não recebem`)}
-          {param('Texto (aprovado pelo jurídico)', <blockquote className="n8n-quote">{data.confirmationText}</blockquote>)}
+          {param('Texto (aprovado pelo jurídico)', <blockquote className="vx-quote">{data.confirmationText}</blockquote>)}
           {param(
             'Regras',
             'Uma vez por número, pela mesma conexão que recebeu o SAIR, depois que o Esfera confirmar. Nunca por conexão em quarentena. Envio incerto não é repetido, para evitar mensagem duplicada.',
@@ -494,8 +494,8 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
         (e) => (
           <>
             {chip(e.confirmation.status)}
-            <small className="n8n-meta">{when(e.confirmation.sentAt ?? e.confirmation.updatedAt)}</small>
-            {e.confirmation.errorCode && <small className="n8n-error">{e.confirmation.errorCode}</small>}
+            <small className="vx-meta">{when(e.confirmation.sentAt ?? e.confirmation.updatedAt)}</small>
+            {e.confirmation.errorCode && <small className="vx-error">{e.confirmation.errorCode}</small>}
           </>
         ),
       ),
@@ -505,17 +505,17 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
   const CurrentIcon = current?.icon;
 
   return (
-    <section className="n8n-flow" aria-label="Fluxo do sistema: descadastro (SAIR)">
-      <header className="n8n-topbar">
-        <nav className="n8n-crumbs" aria-label="Caminho">
+    <section className="vx-flow" aria-label="Fluxo do sistema: descadastro (SAIR)">
+      <header className="vx-topbar">
+        <nav className="vx-crumbs" aria-label="Caminho">
           <Link href={`/projetos/${projectId}`}>{data.project.name}</Link>
           <ChevronRight size={14} aria-hidden="true" />
           <h1>Descadastro automático (SAIR)</h1>
-          <span className="n8n-tag">
+          <span className="vx-tag">
             <LockKeyhole size={11} aria-hidden="true" /> Sistema
           </span>
         </nav>
-        <div className="n8n-modes" role="tablist" aria-label="Modo de exibição">
+        <div className="vx-modes" role="tablist" aria-label="Modo de exibição">
           <button role="tab" aria-selected={mode === 'editor'} onClick={() => setMode('editor')}>
             Editor
           </button>
@@ -523,9 +523,9 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
             Execuções <span>{data.events.length}</span>
           </button>
         </div>
-        <div className="n8n-top-actions">
-          <span className="n8n-active" title="Fluxo do sistema: fica ativo enquanto o worker do VEXOR estiver rodando">
-            <span className="n8n-switch" aria-hidden="true" /> Ativo
+        <div className="vx-top-actions">
+          <span className="vx-active" title="Fluxo do sistema: fica ativo enquanto o worker do VEXOR estiver rodando">
+            <span className="vx-switch" aria-hidden="true" /> Ativo
           </span>
           <Button onClick={load}>
             <RefreshCw size={14} /> Atualizar
@@ -533,12 +533,12 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
         </div>
       </header>
       {error && (
-        <div role="alert" className="n8n-alert">
+        <div role="alert" className="vx-alert">
           {error} <Button onClick={load}>Tentar novamente</Button>
         </div>
       )}
       {mode === 'editor' ? (
-        <div className="n8n-canvas">
+        <div className="vx-canvas">
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -562,13 +562,13 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
             <Background variant={BackgroundVariant.Dots} gap={20} size={1.3} color="#cbc7d6" />
             <Controls position="bottom-left" orientation="horizontal" showInteractive={false} />
           </ReactFlow>
-          <div className="n8n-canvas-hint">
+          <div className="vx-canvas-hint">
             <MousePointerClick size={14} aria-hidden="true" /> Clique numa etapa para ver a configuração e os dados
             reais · atualiza a cada 5 s
           </div>
         </div>
       ) : (
-        <div className="n8n-executions">
+        <div className="vx-executions">
           {data.events.length ? (
             <table>
               <thead>
@@ -600,44 +600,44 @@ export function SystemOptOut({ projectId }: { projectId: string }) {
               </tbody>
             </table>
           ) : (
-            <p className="n8n-empty">Nenhuma execução ainda. Um SAIR recebido aparece aqui depois do processamento.</p>
+            <p className="vx-empty">Nenhuma execução ainda. Um SAIR recebido aparece aqui depois do processamento.</p>
           )}
         </div>
       )}
       {current && open && CurrentIcon && (
         <div
-          className="n8n-ndv-backdrop"
+          className="vx-ndv-backdrop"
           role="dialog"
           aria-modal="true"
           aria-label={current.title}
           onClick={(e) => e.target === e.currentTarget && setOpen(null)}
         >
-          <div className="n8n-ndv">
-            <header className="n8n-ndv-head">
-              <button className="n8n-ndv-back" onClick={() => setOpen(null)}>
+          <div className="vx-ndv">
+            <header className="vx-ndv-head">
+              <button className="vx-ndv-back" onClick={() => setOpen(null)}>
                 <ArrowLeft size={16} /> Voltar ao canvas
               </button>
-              <span className="n8n-ndv-icon" style={{ '--tone': current.tone } as CSSProperties}>
+              <span className="vx-ndv-icon" style={{ '--tone': current.tone } as CSSProperties}>
                 <CurrentIcon size={18} />
               </span>
               <h2>{current.title}</h2>
-              <span className="n8n-tag">
+              <span className="vx-tag">
                 <LockKeyhole size={11} aria-hidden="true" /> Somente leitura
               </span>
-              <button className="n8n-ndv-close" aria-label="Fechar" onClick={() => setOpen(null)}>
+              <button className="vx-ndv-close" aria-label="Fechar" onClick={() => setOpen(null)}>
                 <X size={18} />
               </button>
             </header>
-            <div className="n8n-ndv-body">
-              <section className="n8n-ndv-pane" aria-label="Entrada">
+            <div className="vx-ndv-body">
+              <section className="vx-ndv-pane" aria-label="Entrada">
                 <h3>Entrada</h3>
                 {panes[open].input}
               </section>
-              <section className="n8n-ndv-pane n8n-ndv-params" aria-label="Parâmetros">
+              <section className="vx-ndv-pane vx-ndv-params" aria-label="Parâmetros">
                 <h3>Parâmetros</h3>
                 {panes[open].params}
               </section>
-              <section className="n8n-ndv-pane" aria-label="Saída">
+              <section className="vx-ndv-pane" aria-label="Saída">
                 <h3>Saída</h3>
                 {panes[open].output}
               </section>
