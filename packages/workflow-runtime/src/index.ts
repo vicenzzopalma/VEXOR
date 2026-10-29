@@ -741,6 +741,9 @@ export { dispatchNextEmail } from './delivery';
 export {
   dispatchNextOptOut,
   captureOptOutInTransaction,
+  captureDeviceOptOut,
+  type DeviceMessage,
+  type DeviceDecision,
   revokeLeadConsent,
   deliveryOutcome,
   optOutBackoffMs,

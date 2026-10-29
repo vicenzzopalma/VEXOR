@@ -8,6 +8,7 @@ import {
   optOutExcerpt,
   resolveEsferaLink,
   toE164,
+  OPT_OUT_CONFIRMATION_TEXT,
   type EsferaLink,
   optOutPhoneKey,
   optOutConfirmationPolicy,
@@ -84,6 +85,9 @@ export async function enqueueOptOutConfirmation(
   },
 ) {
   if (!row.connectionId || !row.sourceEventId) return; // never reply to a manual phone entry
+  // The dispatch phone sends the confirmation itself (typed, at the end of the campaign).
+  // Replying through the gateway (unofficial linked device) put the number at risk: off unless enabled.
+  if (process.env.OPT_OUT_GATEWAY_CONFIRMATION !== 'true') return;
   const source = await tx.whatsAppEvent.findFirst({
     where: { id: row.sourceEventId, connectionId: row.connectionId, kind: 'MESSAGE' },
   });
@@ -433,4 +437,64 @@ export async function dispatchNextOptOut(
       availableAt: new Date(Date.now() + optOutBackoffMs(job.attempt)),
     });
   return db.optOutEvent.findUniqueOrThrow({ where: { id: job.id } });
+}
+
+/** Reply read on the Esfera dispatch phone (notification), forwarded by Esfera. */
+export type DeviceMessage = { id: string; from: string; text?: string; receivedAt?: string; device?: string };
+export type DeviceDecision = {
+  id: string;
+  decision: 'OPT_OUT' | 'REVIEW' | 'NONE';
+  eventId?: string;
+  confirmationText?: string;
+};
+
+/**
+ * Classifies a reply received on the dispatch phone and records it in the SAIR flow.
+ * OPT_OUT is recorded as already delivered (Esfera asked and stores it from this answer) and
+ * revokes consent; AMBIGUOUS waits for review (a confirmed review reaches Esfera through the
+ * normal outbox). Nothing is sent from here: the phone types the confirmation itself.
+ */
+export async function captureDeviceOptOut(
+  db: PrismaClient,
+  organizationId: string,
+  msg: DeviceMessage,
+): Promise<DeviceDecision> {
+  const classification = classifyOptOut(msg.text);
+  const phone = toE164(msg.from);
+  if (classification === 'NONE' || !phone) return { id: msg.id, decision: 'NONE' };
+  const device = (msg.device || 'celular').replace(/[^\w.:-]/g, '').slice(0, 64) || 'celular';
+  const eventKey = `device:${device}:${msg.id}`.slice(0, 190);
+  const parsed = msg.receivedAt ? new Date(msg.receivedAt) : undefined;
+  const receivedAt =
+    parsed && Number.isFinite(parsed.getTime()) && parsed.getTime() <= Date.now() + 60000 ? parsed : new Date();
+  const optOut = classification === 'OPT_OUT';
+  const row = await db.$transaction(async (tx) => {
+    const existing = await tx.optOutEvent.findUnique({ where: { eventKey } });
+    if (existing) return existing;
+    const created = await tx.optOutEvent.create({
+      data: {
+        organizationId,
+        connectionId: null,
+        sourceEventId: null,
+        eventKey,
+        phone,
+        classification,
+        excerpt: optOutExcerpt(msg.text),
+        receivedAt,
+        status: optOut ? 'DELIVERED' : 'REVIEW',
+        deliveredAt: optOut ? new Date() : null,
+        ackStatus: optOut ? 'DEVICE' : null,
+      },
+    });
+    if (optOut) await revokeLeadConsent(tx, organizationId, phone);
+    return created;
+  });
+  if (row.organizationId !== organizationId) return { id: msg.id, decision: 'NONE' };
+  const isOptOut = row.classification === 'OPT_OUT';
+  return {
+    id: msg.id,
+    eventId: row.id,
+    decision: isOptOut ? 'OPT_OUT' : 'REVIEW',
+    confirmationText: isOptOut ? OPT_OUT_CONFIRMATION_TEXT : undefined,
+  };
 }

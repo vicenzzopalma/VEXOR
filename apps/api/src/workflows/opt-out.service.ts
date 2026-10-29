@@ -5,7 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import {
   resolveEsferaLink,
@@ -17,7 +17,7 @@ import {
   OPT_OUT_SAIR_TYPOS,
   OPT_OUT_TYPO_RULE,
 } from '@eimax/connectors';
-import { revokeLeadConsent, enqueueOptOutConfirmation } from '@eimax/workflow-runtime';
+import { revokeLeadConsent, enqueueOptOutConfirmation, captureDeviceOptOut } from '@eimax/workflow-runtime';
 import { WorkflowService } from './workflow.service';
 import { parse } from './contracts';
 
@@ -40,11 +40,57 @@ const manualSchema = z
 
 const retrySchema = z.object({ expectedUpdatedAt: z.string().datetime() }).strict();
 
+const deviceMessagesSchema = z
+  .object({
+    messages: z
+      .array(
+        z
+          .object({
+            id: z.string().trim().min(1).max(120),
+            from: z.string().trim().min(8).max(40),
+            text: z.string().max(2000).optional(),
+            receivedAt: z.string().max(40).optional(),
+            device: z.string().max(80).optional(),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(50),
+  })
+  .strict();
+
+/** Organization whose Esfera link (installation config) has this company and token. */
+export function organizationForEsferaToken(companyId: number, token: string, raw = process.env.ESFERA_OPTOUT_LINKS_JSON) {
+  if (!raw || !token) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const given = Buffer.from(token);
+  for (const organizationId of Object.keys(parsed as Record<string, unknown>)) {
+    const link = resolveEsferaLink(organizationId, raw);
+    if (!link || link.companyId !== companyId) continue;
+    const expected = Buffer.from(link.token);
+    if (expected.length === given.length && timingSafeEqual(expected, given)) return organizationId;
+  }
+  return undefined;
+}
+
 @Injectable()
 export class OptOutService {
   constructor(@Inject(WorkflowService) private readonly workflows: WorkflowService) {}
   get db() {
     return this.workflows.db;
+  }
+  /** Replies read on the Esfera dispatch phone: classify, record in the SAIR flow, answer the decision. */
+  async deviceMessages(organizationId: string, body: unknown) {
+    const input = parse(deviceMessagesSchema, body);
+    const results = [];
+    for (const message of input.messages) results.push(await captureDeviceOptOut(this.db, organizationId, message));
+    return { results };
   }
   /** Public shape: no tokens, no conversation. */
   private publicRow(row: {

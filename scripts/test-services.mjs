@@ -9,6 +9,8 @@ const url = configureTestEnvironment();
 const sessions = JSON.parse(readFileSync('.local/development-sessions.json', 'utf8'));
 for (const [name, token] of Object.entries(sessions)) process.env[`DEV_${name.toUpperCase()}_TOKEN`] = token;
 process.env.CONNECTOR_ENCRYPTION_KEY ??= sessions.connectorKey;
+// The gateway confirmation is off in production (the phone confirms); its tests still cover it.
+process.env.OPT_OUT_GATEWAY_CONFIRMATION ??= 'true';
 process.env.WEBHOOK_SECRET ??= sessions.webhook;
 process.env.WEBHOOK_CREDENTIALS_JSON = JSON.stringify({
   'org-local:ingress': sessions.webhook,

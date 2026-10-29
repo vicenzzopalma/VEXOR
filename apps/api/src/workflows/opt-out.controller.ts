@@ -1,7 +1,20 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Inject,
+  Param,
+  Post,
+  Query,
+  Req,
+  SetMetadata,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
 import { DevelopmentGuard } from './development.guard';
 import { Roles, type AuthorizedRequest } from './contracts';
-import { OptOutService } from './opt-out.service';
+import { OptOutService, organizationForEsferaToken } from './opt-out.service';
 
 @Controller()
 @UseGuards(DevelopmentGuard)
@@ -28,6 +41,19 @@ export class OptOutController {
   @Roles('owner', 'editor')
   resolve(@Req() req: AuthorizedRequest, @Param('id') id: string, @Body() body: unknown) {
     return this.optOuts.resolve(id, req.access.organizationId, body, req.access.userId);
+  }
+  /** Esfera forwards replies read on the dispatch phone (no WhatsApp gateway involved). */
+  @Post('esfera/device-messages')
+  @SetMetadata('public', true)
+  deviceMessages(
+    @Headers('authorization') authorization = '',
+    @Headers('x-esfera-company') company = '',
+    @Body() body: unknown,
+  ) {
+    const token = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
+    const organizationId = organizationForEsferaToken(Number(company), token);
+    if (!organizationId) throw new UnauthorizedException('Token da integração Esfera inválido.');
+    return this.optOuts.deviceMessages(organizationId, body);
   }
   @Post('opt-outs/:id/retry')
   @Roles('owner')
