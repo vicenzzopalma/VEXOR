@@ -9,3 +9,20 @@
   --text-secondary: #615b6e;
   --success: #2a9a79;
 }
+
+/* Canvas de fluxos (editor e SAIR): ligações, estados de execução e superfícies flutuantes. */
+:root {
+  --vx-edge-idle: #b9b5c6;
+  --vx-edge-live: var(--success);
+  --vx-edge-live-text: #1f7a5f;
+  --vx-state-running: var(--primary);
+  --vx-state-success: var(--success);
+  --vx-state-failed: var(--color-danger, #d45d74);
+  --vx-state-waiting: #2f6fdb;
+  --vx-state-skipped: #b9b5c6;
+  --vx-state-invalid: #e09a1a;
+  --vx-danger-soft: #fbe6ea;
+  --vx-focus-ring: rgba(115, 82, 214, 0.35);
+  --vx-shadow-float: 0 4px 12px rgba(37, 35, 52, 0.12);
+  --vx-shadow-chip: 0 2px 10px rgba(37, 35, 52, 0.08);
+}

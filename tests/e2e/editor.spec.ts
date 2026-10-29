@@ -89,18 +89,20 @@ test('arrastar, mover, desconectar e reconectar blocos no desktop', async ({ pag
   await expect(page.locator('.react-flow__node')).toHaveCount(7);
   const waitNode = page.locator('.react-flow__node').filter({ hasText: 'Esperar' });
   const nodeBox = (await waitNode.boundingBox())!;
-  await page.mouse.move(nodeBox.x + 80, nodeBox.y + 40);
+  // Arrasta pelo nome do bloco (o bloco tem 100 px; o centro é o botão de abrir detalhes).
+  const grip = (await waitNode.locator('.vx-node-label strong').boundingBox())!;
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
-  await page.mouse.move(nodeBox.x + 110, nodeBox.y + 80, { steps: 8 });
+  await page.mouse.move(grip.x + grip.width / 2 + 30, grip.y + grip.height / 2 + 40, { steps: 8 });
   await page.mouse.up();
   const moved = (await waitNode.boundingBox())!;
   expect(moved.y).toBeGreaterThan(nodeBox.y + 20);
   const nurture = page.locator('.react-flow__node[data-id="nurture"]');
-  await nurture.locator('.react-flow__handle-bottom').dragTo(waitNode.locator('.react-flow__handle-top'));
+  await nurture.locator('.react-flow__handle-right').dragTo(waitNode.locator('.react-flow__handle-left'));
   await expect(page.locator('.react-flow__edge')).toHaveCount(6);
   await expect(page.getByText('Tudo salvo', { exact: true })).toBeVisible();
   const reconnectSource = page.locator('.react-flow__edge').last().locator('.react-flow__edgeupdater-source');
-  const notifySource = page.locator('.react-flow__node[data-id="notify"] .react-flow__handle-bottom');
+  const notifySource = page.locator('.react-flow__node[data-id="notify"] .react-flow__handle-right');
   await reconnectSource.dragTo(notifySource);
   await expect(page.locator('.react-flow__edge')).toHaveCount(6);
   await expect(page.getByText('Tudo salvo', { exact: true })).toBeVisible();

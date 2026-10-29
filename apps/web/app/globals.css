@@ -794,7 +794,7 @@ button {
   cursor: default;
 }
 .react-flow__node-workflow {
-  width: 240px;
+  width: auto;
   border: 0;
   border-radius: 10px;
   outline: none;
@@ -2686,13 +2686,66 @@ button {
 .vx-node .vx-handle-in { width: 8px; height: 20px; border-radius: 3px; background: #b9b5c6; left: -6px; }
 .vx-node .vx-handle-out { width: 14px; height: 14px; border-radius: 50%; background: #b9b5c6; border: 3px solid var(--canvas); right: -9px; }
 .flow-node.is-invalid { border-color: var(--color-danger); }
-.flow-node .react-flow__handle { width: 14px; height: 14px; background: var(--text-secondary); border: 3px solid var(--canvas); }
 .flow-node-open { width: 68px; height: 68px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; cursor: pointer; }
 .flow-node-open:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .flow-node .flow-node-state { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; }
 .flow-node .branch-port { bottom: 5px; font-size: 10px; transform: translateX(-50%); }
 .flow-node .vx-node-label small { color: var(--text-secondary); }
 .flow-node .vx-node-label { pointer-events: auto; }
+/* Canvas do editor comum no padrão do fluxo do SAIR: estados, selos, ligações e ações (fase 3, fatia 1) */
+.react-flow__node-workflow:focus-visible .vx-node { box-shadow: 0 0 0 4px var(--vx-focus-ring); }
+.flow-node .vx-handle-out.branch-true { background: var(--vx-state-success); }
+.flow-node .vx-handle-out.branch-false { background: var(--vx-state-failed); }
+.flow-node .vx-out-label { z-index: 1; }
+.vx-node.vx-state-running { border-color: var(--vx-state-running); }
+.vx-node.vx-state-success { border-color: var(--vx-state-success); }
+.vx-node.vx-state-failed { border-color: var(--vx-state-failed); }
+.vx-node.vx-state-waiting { border-color: var(--vx-state-waiting); }
+.vx-node.vx-state-skipped { opacity: 0.55; border-style: dashed; }
+.vx-node.is-invalid:not(.vx-state-failed):not(.vx-state-running) { border-color: var(--vx-state-invalid); border-style: dashed; }
+.vx-node.vx-state-running::after, .vx-node.vx-state-waiting::after { content: ''; position: absolute; inset: -8px; border-radius: 14px; border: 2px solid transparent; border-top-color: var(--vx-state-running); border-right-color: var(--vx-state-running); animation: spin 0.9s linear infinite; pointer-events: none; }
+.vx-node.vx-state-waiting::after { border-top-color: var(--vx-state-waiting); border-right-color: var(--vx-state-waiting); animation-duration: 2.6s; }
+.vx-node-badge.vx-badge-running { background: var(--vx-state-running); }
+.vx-node-badge.vx-badge-success { background: var(--vx-state-success); }
+.vx-node-badge.vx-badge-failed { background: var(--vx-state-failed); }
+.vx-node-badge.vx-badge-waiting { background: var(--vx-state-waiting); }
+.vx-node-badge.vx-badge-skipped { background: var(--vx-state-skipped); }
+.vx-node-badge.vx-badge-invalid { background: var(--vx-state-invalid); }
+.vx-node-toolbar { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--vx-shadow-float); }
+.vx-node-toolbar button, .vx-edge-tools button { width: 28px; height: 28px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; }
+.vx-node-toolbar button:hover, .vx-edge-tools button:hover { background: var(--soft); color: var(--primary); }
+.vx-node-toolbar button.danger:hover, .vx-edge-tools button.danger:hover { background: var(--vx-danger-soft); color: var(--vx-state-failed); }
+.vx-node-toolbar button:focus-visible, .vx-edge-tools button:focus-visible, .vx-run-chip button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.react-flow__edge-path.vx-edge-path { stroke: var(--vx-edge-idle); stroke-width: 2; }
+.react-flow__edge-path.vx-edge-path.is-live { stroke: var(--vx-edge-live); }
+.react-flow__edge:hover .react-flow__edge-path.vx-edge-path:not(.is-live) { stroke: var(--text-secondary); }
+.vx-edge-arrow { fill: var(--vx-edge-idle); pointer-events: none; }
+.vx-edge-arrow.is-live { fill: var(--vx-edge-live); }
+.vx-edge-arrow.is-selected { fill: var(--primary); }
+.vx-edge-label { position: absolute; z-index: 2000; display: flex; flex-direction: column; align-items: center; gap: 4px; pointer-events: all; }
+.vx-edge-count { padding: 1px 7px; border-radius: 4px; background: var(--surface); color: var(--vx-edge-live-text); font-size: 11px; font-weight: 600; white-space: nowrap; box-shadow: 0 0 0 1px var(--line); }
+.vx-edge-tools { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--vx-shadow-float); }
+.vx-run-chip { display: flex; align-items: center; gap: 8px; max-width: min(460px, calc(100vw - 150px)); padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: var(--vx-shadow-chip); font-size: 12px; color: var(--ink); }
+.vx-run-long, .vx-run-short { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.vx-run-short { display: none; }
+@media (max-width: 700px) {
+  .vx-run-long { display: none; }
+  .vx-run-short { display: inline; }
+}
+.vx-run-chip button { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; border: 0; border-radius: 6px; padding: 4px 8px; background: var(--soft); color: var(--primary); font: inherit; font-weight: 600; cursor: pointer; }
+.vx-run-dot { width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--vx-state-running); }
+.vx-run-dot.real { background: var(--vx-state-success); }
+.durable-editor-status .btn.is-active { border-color: var(--primary); color: var(--primary); background: var(--surface); }
+.vx-edge-panel { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.vx-edge-panel .btn { min-height: 36px; }
+.vx-insert-list { display: grid; max-height: min(52vh, 420px); margin-top: 12px; overflow-y: auto; }
+.vx-insert-list .library-block { cursor: pointer; }
+@media (pointer: coarse), (max-width: 700px) {
+  .vx-node-toolbar button, .vx-edge-tools button { width: 36px; height: 36px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vx-node.vx-state-running::after, .vx-node.vx-state-waiting::after { animation: none; }
+}
 .execution-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 16px; margin: 18px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
 .execution-filters label { display: grid; gap: 6px; flex: 1 1 150px; min-width: 0; color: var(--text-secondary); font-size: 12px; font-weight: 600; }
 .execution-filters input, .execution-filters select { width: 100%; min-width: 0; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--ink); }

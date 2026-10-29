@@ -11,7 +11,12 @@ import {
   Panel,
   useReactFlow,
   reconnectEdge,
+  BaseEdge,
+  EdgeLabelRenderer,
+  getBezierPath,
+  useStore,
   type Edge,
+  type EdgeProps,
   type Connection,
   type NodeChange,
 } from '@xyflow/react';
@@ -64,12 +69,202 @@ import {
 import { api, ApiError, type ExecutionRecord } from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { blockIcons } from './icons';
-import { WorkflowBlock, type FlowNode } from './workflow-node';
+import { WorkflowBlock, type FlowNode, type NodeRunState } from './workflow-node';
 import { Inspector } from './inspector';
 import { useEditorState } from './editor-state';
 import { RunLog } from './run-log';
 
 const nodeTypes = { workflow: WorkflowBlock };
+/** Tamanho do bloco no canvas e espaço horizontal entre colunas (rótulos de ligação e de saída cabem no vão). */
+const NODE_SIZE = 100;
+const NODE_GAP = 140;
+const NODE_STEP = NODE_SIZE + NODE_GAP;
+const itemsLabel = (n: number) => `${n} ${n === 1 ? 'item' : 'itens'}`;
+
+type LinkData = {
+  label: string;
+  live: boolean;
+  count: number;
+  editable: boolean;
+  hovered: boolean;
+  onHover: (edgeId?: string) => void;
+  onInsert: (edgeId: string) => void;
+  onDelete: (edgeId: string) => void;
+};
+type LinkEdge = Edge<LinkData, 'link'>;
+
+/** Ligação com seta, contagem de itens percorridos e ações de inserir e excluir ao passar o mouse ou selecionar. */
+function LinkEdgeView({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+  selected,
+}: EdgeProps<LinkEdge>) {
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+  const live = !!data?.live;
+  const tools = !!data?.editable && (data.hovered || !!selected);
+  // Rótulo e botões mantêm o tamanho na tela quando o canvas está afastado (zoom < 100%).
+  const zoom = useStore((store) => store.transform[2]);
+  const scale = zoom > 0 && zoom < 1 ? 1 / zoom : 1;
+  const count = live ? (data?.count ?? 0) : 0;
+  return (
+    <>
+      <BaseEdge
+        id={id}
+        path={path}
+        className={`vx-edge-path${live ? ' is-live' : ''}`}
+        interactionWidth={25}
+      />
+      <path
+        className={`vx-edge-arrow${live ? ' is-live' : ''}${selected ? ' is-selected' : ''}`}
+        d={`M ${targetX - 10} ${targetY - 5.5} L ${targetX - 1} ${targetY} L ${targetX - 10} ${targetY + 5.5} Z`}
+      />
+      {(tools || count > 0) && data && (
+        <EdgeLabelRenderer>
+          <div
+            className="vx-edge-label nodrag nopan"
+            style={{
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px) scale(${scale})`,
+            }}
+            onMouseEnter={() => data.onHover(id)}
+            onMouseLeave={() => data.onHover(undefined)}
+          >
+            {count > 0 && (
+              <span className="vx-edge-count" data-testid={`edge-count-${id}`}>
+                {itemsLabel(count)}
+              </span>
+            )}
+            {tools && (
+              <span className="vx-edge-tools" role="group" aria-label={`Ações da ${data.label}`}>
+                <button
+                  type="button"
+                  aria-label={`Inserir bloco na ${data.label}`}
+                  title="Inserir bloco aqui"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    data.onInsert(id);
+                  }}
+                >
+                  <Plus size={14} aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  aria-label={`Excluir ${data.label}`}
+                  title="Excluir ligação"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    data.onDelete(id);
+                  }}
+                >
+                  <Trash2 size={14} aria-hidden="true" />
+                </button>
+              </span>
+            )}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+const edgeTypes = { link: LinkEdgeView };
+
+/** Desce a partir de `start` até achar um lugar sem outro bloco por perto. */
+function freeSpot(nodes: WorkflowNode[], start: { x: number; y: number }) {
+  const spot = { ...start };
+  const taken = () =>
+    nodes.some(
+      (n) =>
+        Math.abs(n.position.x - spot.x) < NODE_SIZE + 40 && Math.abs(n.position.y - spot.y) < NODE_SIZE + 50,
+    );
+  for (let tries = 0; taken() && tries < 50; tries++) spot.y += NODE_SIZE + 70;
+  return spot;
+}
+/** Celular, toque ou tela estreita: enquadrar com zoom legível em vez de mostrar o fluxo inteiro minúsculo. */
+const isCompact = () =>
+  typeof window !== 'undefined' && window.matchMedia('(pointer: coarse), (max-width: 700px)').matches;
+/** Devolve o foco ao bloco indicado ou à área do canvas depois de uma ação que remove o elemento focado. */
+const focusCanvas = (nodeId?: string) =>
+  setTimeout(() => {
+    const target = nodeId
+      ? document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(nodeId)}"]`)
+      : document.querySelector<HTMLElement>('.canvas-area');
+    target?.focus({ preventScroll: true });
+  }, 60);
+
+/** Seletor rápido de blocos para inserir entre dois blocos ligados. */
+function InsertPicker({
+  sourceName,
+  targetName,
+  onPick,
+  onClose,
+}: {
+  sourceName: string;
+  targetName: string;
+  onPick: (type: BlockType) => void;
+  onClose: () => void;
+}) {
+  const [term, setTerm] = useState('');
+  const items = blockTypes.filter(
+    (t) =>
+      !triggerTypes.includes(t) &&
+      `${catalog[t].name} ${catalog[t].description}`
+        .toLocaleLowerCase('pt-BR')
+        .includes(term.toLocaleLowerCase('pt-BR')),
+  );
+  return (
+    <Dialog title="Inserir bloco na ligação" onClose={onClose}>
+      <p className="muted">
+        O novo bloco entra entre “{sourceName}” e “{targetName}”, e as ligações são refeitas.
+      </p>
+      <div className="search-input">
+        <Search size={15} />
+        <input
+          aria-label="Buscar bloco para inserir"
+          placeholder="Buscar blocos…"
+          value={term}
+          onChange={(event) => setTerm(event.target.value)}
+        />
+      </div>
+      <div className="vx-insert-list">
+        {items.map((type) => {
+          const meta = catalog[type];
+          const Icon = blockIcons[type];
+          return (
+            <button
+              key={type}
+              type="button"
+              className="library-block"
+              aria-label={`Inserir ${meta.name}`}
+              onClick={() => onPick(type)}
+            >
+              <span className={`block-icon color-${meta.color}`}>
+                <Icon size={18} />
+              </span>
+              <span>
+                <strong>{meta.name}</strong>
+                <small>{meta.description}</small>
+              </span>
+            </button>
+          );
+        })}
+        {!items.length && <p className="empty-search">Nenhum bloco encontrado para “{term}”.</p>}
+      </div>
+    </Dialog>
+  );
+}
 const saveLabels = {
   saved: 'Tudo salvo',
   dirty: 'Alterações pendentes',
@@ -144,6 +339,17 @@ function EditorWorkspace({ id }: { id: string }) {
     };
   }, [id]);
   const [execution, setExecution] = useState<Record<string, string>>({});
+  // A simulação desta sessão pinta o canvas até o usuário limpar ou escolher uma execução real.
+  const [simPainted, setSimPainted] = useState(false);
+  const [hoverEdge, setHoverEdge] = useState<string>();
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hover = useCallback((edgeId?: string) => {
+    clearTimeout(hoverTimer.current);
+    if (edgeId) setHoverEdge(edgeId);
+    else hoverTimer.current = setTimeout(() => setHoverEdge(undefined), 500);
+  }, []);
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  const [insertEdge, setInsertEdge] = useState<string>();
   const [zoom, setZoom] = useState(100);
   const [hand, setHand] = useState(false);
   const [showTip, setShowTip] = useState(true);
@@ -213,15 +419,158 @@ function EditorWorkspace({ id }: { id: string }) {
   const detailNode = flow?.nodes.find((n) => n.id === detailNodeId);
   const detailRun = detailSource === 'simulation' ? run : realRuns.find((item) => item.id === detailSource);
   const detailStep = detailRun?.steps.find((step) => step.nodeId === detailNodeId);
+  const shownReal = realRunId ? realRuns.find((r) => r.id === realRunId) : undefined;
+  /**
+   * Estado de cada bloco e ramo tomado por cada condição, vindos da execução real escolhida
+   * (prioridade) ou da simulação desta sessão. Sem execução escolhida, o canvas fica neutro.
+   */
+  // Versão publicada usada pela execução real: blocos que não existiam nela não são "não percorridos".
+  const runVersion = shownReal?.versionId
+    ? state.versions.find((v) => v.id === shownReal.versionId)
+    : undefined;
+  const [versionNodes, setVersionNodes] = useState<{ number: number; ids: string[] }>();
+  useEffect(() => {
+    if (!runVersion) return;
+    let active = true;
+    api<{ number: number; snapshot: WorkflowModel }>(`/workflows/${id}/versions/${runVersion.number}`)
+      .then((row) => {
+        if (active) setVersionNodes({ number: row.number, ids: row.snapshot.nodes.map((n) => n.id) });
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [id, runVersion]);
+  const versionNote = !shownReal?.versionId
+    ? ''
+    : !runVersion
+      ? ' · versão desconhecida'
+      : runVersion.id === state.versions[0]?.id
+        ? ` · versão ${runVersion.number}`
+        : ` · versão ${runVersion.number}, anterior à mais recente`;
+  const canvasRun = useMemo(() => {
+    const states: Record<string, NodeRunState> = {};
+    const branches: Record<string, string> = {};
+    if (shownReal) {
+      const waitingNode =
+        shownReal.status === 'SUSPENDED'
+          ? (shownReal.checkpoints?.at(-1)?.nodeId ??
+            shownReal.steps.filter((s) => s.nodeType === 'wait').at(-1)?.nodeId)
+          : undefined;
+      for (const step of shownReal.steps) {
+        const status = String(step.status).toLowerCase();
+        const state: NodeRunState | undefined =
+          step.nodeId === waitingNode
+            ? 'waiting'
+            : status === 'success' || status === 'completed'
+              ? 'success'
+              : status === 'failed'
+                ? 'failed'
+                : status === 'skipped'
+                  ? 'skipped'
+                  : status === 'running'
+                    ? 'running'
+                    : undefined;
+        if (state) states[step.nodeId] = state;
+        if (typeof step.output?.branch === 'string') branches[step.nodeId] = step.output.branch;
+      }
+      // Execução encerrada: blocos sem etapa registrada não foram percorridos, desde que existissem
+      // na versão executada (sem a lista dessa versão, nenhum bloco é marcado por suposição).
+      const existed = !shownReal.versionId
+        ? () => true
+        : runVersion && versionNodes?.number === runVersion.number
+          ? (nodeId: string) => versionNodes.ids.includes(nodeId)
+          : () => false;
+      if (['COMPLETED', 'FAILED'].includes(shownReal.status))
+        flow?.nodes.forEach((n) => existed(n.id) && (states[n.id] ??= 'skipped'));
+      return { source: 'real' as const, states, branches };
+    }
+    if (simPainted && run) {
+      Object.entries(execution).forEach(([nodeId, status]) => (states[nodeId] = status as NodeRunState));
+      run.steps.forEach((step) => {
+        if (typeof step.output?.branch === 'string') branches[step.nodeId] = step.output.branch;
+      });
+      return { source: 'simulation' as const, states, branches };
+    }
+    return undefined;
+  }, [shownReal, simPainted, run, execution, flow, runVersion, versionNodes]);
+  const clearCanvasRun = () => {
+    playback.current++;
+    setRealRunId(undefined);
+    setSimPainted(false);
+    setExecution({});
+  };
   const openNode = useCallback(
     (nodeId: string) => {
       setSelected([nodeId]);
       setSelectedEdges([]);
       setInspector(true);
       setDetailNodeId(nodeId);
-      setDetailSource(run ? 'simulation' : (realRuns[0]?.id ?? ''));
+      setDetailSource(realRunId ?? (run ? 'simulation' : (realRuns[0]?.id ?? '')));
     },
-    [run, realRuns],
+    [run, realRuns, realRunId],
+  );
+  const removeItems = useCallback(
+    (nodeIds: string[], edgeIds: string[]) => {
+      change((f) => ({
+        ...f,
+        nodes: f.nodes.filter((n) => !nodeIds.includes(n.id)),
+        edges: f.edges.filter(
+          (e) => !nodeIds.includes(e.source) && !nodeIds.includes(e.target) && !edgeIds.includes(e.id),
+        ),
+      }));
+      setSelected((previous) => previous.filter((id) => !nodeIds.includes(id)));
+      setSelectedEdges((previous) => previous.filter((id) => !edgeIds.includes(id)));
+    },
+    [change],
+  );
+  const remove = useCallback(
+    () => removeItems(selected, selectedEdges),
+    [removeItems, selected, selectedEdges],
+  );
+  const duplicateNodes = useCallback(
+    (ids: string[]) => {
+      if (!flow || !ids.length) return;
+      const map = new Map(ids.map((n) => [n, uid()]));
+      const originals = flow.nodes.filter((n) => ids.includes(n.id));
+      // Uma cópia vai para o próximo lugar livre à direita; um grupo vai inteiro para a direita do grupo.
+      const groupShift =
+        Math.max(...originals.map((n) => n.position.x)) -
+        Math.min(...originals.map((n) => n.position.x)) +
+        NODE_STEP;
+      const copies = originals.map((n) => ({
+        ...structuredClone(n),
+        id: map.get(n.id)!,
+        name: `${n.name} (cópia)`,
+        position:
+          originals.length === 1
+            ? freeSpot(flow.nodes, { x: n.position.x + NODE_STEP, y: n.position.y })
+            : { x: n.position.x + groupShift, y: n.position.y },
+      }));
+      change((f) => ({
+        ...f,
+        nodes: [...f.nodes, ...copies],
+        edges: [
+          ...f.edges,
+          ...f.edges
+            .filter((e) => map.has(e.source) && map.has(e.target))
+            .map((e) => ({ ...e, id: uid(), source: map.get(e.source)!, target: map.get(e.target)! })),
+        ],
+      }));
+      setSelected(copies.map((n) => n.id));
+      setSelectedEdges([]);
+    },
+    [flow, change],
+  );
+  const duplicate = useCallback(() => duplicateNodes(selected), [duplicateNodes, selected]);
+  const deleteEdge = useCallback(
+    (edgeId: string) => {
+      removeItems([], [edgeId]);
+      setHoverEdge(undefined);
+      focusCanvas();
+      setToast('Ligação excluída. Você pode desfazer esta ação.');
+    },
+    [removeItems],
   );
   const nodes: FlowNode[] = useMemo(
     () =>
@@ -232,69 +581,58 @@ function EditorWorkspace({ id }: { id: string }) {
         measured: dimensions[block.id],
         data: {
           block,
-          execution: execution[block.id],
+          execution: canvasRun?.states[block.id],
           invalid: !configSchemas[block.type].safeParse(block.config).success,
+          readOnly,
           onOpen: () => openNode(block.id),
+          onDuplicate: () => duplicateNodes([block.id]),
+          onDelete: () => {
+            removeItems([block.id], []);
+            focusCanvas();
+          },
         },
         selected: selected.includes(block.id),
       })),
-    [flow, selected, execution, dimensions, openNode],
+    [flow, selected, canvasRun, dimensions, openNode, readOnly, duplicateNodes, removeItems],
   );
-  const edges: Edge[] = useMemo(
-    () =>
-      (flow?.edges ?? []).map((e) => ({
+  const edges: LinkEdge[] = useMemo(() => {
+    const names = new Map((flow?.nodes ?? []).map((n) => [n.id, n]));
+    // Uma ligação conta como percorrida quando a origem concluiu, o destino foi alcançado e,
+    // numa condição, o ramo registrado na saída é o desta ligação. Cada execução leva um lead (1 item).
+    const traversed = (e: { source: string; target: string; branch?: string }) => {
+      if (!canvasRun) return false;
+      if (canvasRun.states[e.source] !== 'success') return false;
+      if (!['success', 'failed', 'waiting', 'running'].includes(canvasRun.states[e.target] ?? ''))
+        return false;
+      const taken = canvasRun.branches[e.source];
+      if (names.get(e.source)?.type === 'condition' && taken !== undefined) return e.branch === taken;
+      return true;
+    };
+    return (flow?.edges ?? []).map((e) => {
+      const label = `ligação de ${names.get(e.source)?.name ?? 'origem'} para ${names.get(e.target)?.name ?? 'destino'}`;
+      const live = traversed(e);
+      return {
         id: e.id,
         source: e.source,
         target: e.target,
         sourceHandle: e.branch ?? null,
-        type: 'default',
-        label: e.branch === 'true' ? 'Condição atendida' : e.branch === 'false' ? 'Não atendida' : undefined,
+        type: 'link' as const,
+        ariaLabel: label.charAt(0).toUpperCase() + label.slice(1),
         selected: selectedEdges.includes(e.id),
         reconnectable: !readOnly,
-        style: {
-          stroke: e.branch === 'false' ? '#ca879b' : e.branch === 'true' ? '#70aa97' : '#b7adc9',
-          strokeWidth: 1.7,
+        data: {
+          label,
+          live,
+          count: live ? 1 : 0,
+          editable: !readOnly,
+          hovered: hoverEdge === e.id,
+          onHover: hover,
+          onInsert: setInsertEdge,
+          onDelete: deleteEdge,
         },
-        labelStyle: { fill: e.branch === 'false' ? '#b96f85' : '#659782', fontWeight: 500, fontSize: 10 },
-        labelBgStyle: { fill: '#f8f9fc' },
-        labelBgPadding: [7, 5] as [number, number],
-      })),
-    [flow, selectedEdges, readOnly],
-  );
-  const remove = useCallback(() => {
-    change((f) => ({
-      ...f,
-      nodes: f.nodes.filter((n) => !selected.includes(n.id)),
-      edges: f.edges.filter(
-        (e) => !selected.includes(e.source) && !selected.includes(e.target) && !selectedEdges.includes(e.id),
-      ),
-    }));
-    setSelected([]);
-    setSelectedEdges([]);
-  }, [change, selected, selectedEdges]);
-  const duplicate = useCallback(() => {
-    if (!flow || !selected.length) return;
-    const map = new Map(selected.map((n) => [n, uid()]));
-    const copies = flow.nodes
-      .filter((n) => selected.includes(n.id))
-      .map((n) => ({
-        ...structuredClone(n),
-        id: map.get(n.id)!,
-        name: `${n.name} (cópia)`,
-        position: { x: n.position.x + 40, y: n.position.y + 45 },
-      }));
-    change((f) => ({
-      ...f,
-      nodes: [...f.nodes, ...copies],
-      edges: [
-        ...f.edges,
-        ...f.edges
-          .filter((e) => map.has(e.source) && map.has(e.target))
-          .map((e) => ({ ...e, id: uid(), source: map.get(e.source)!, target: map.get(e.target)! })),
-      ],
-    }));
-    setSelected(copies.map((n) => n.id));
-  }, [flow, selected, change]);
+      };
+    });
+  }, [flow, selectedEdges, readOnly, canvasRun, hoverEdge, hover, deleteEdge]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (
@@ -432,12 +770,20 @@ function EditorWorkspace({ id }: { id: string }) {
       return;
     }
     const bounds = document.querySelector('.canvas-area')?.getBoundingClientRect();
+    const spot = position ? undefined : nextFreeSpot();
     const p =
       position ??
+      spot ??
       rf.screenToFlowPosition({
         x: (bounds?.left ?? 350) + (bounds?.width ?? 700) / 2,
         y: (bounds?.top ?? 150) + (bounds?.height ?? 600) / 2,
       });
+    if (spot)
+      setTimeout(
+        () =>
+          rf.setCenter(spot.x + NODE_SIZE / 2, spot.y + NODE_SIZE / 2, { zoom: rf.getZoom(), duration: 200 }),
+        30,
+      );
     const block: WorkflowNode = {
       id: uid(),
       type,
@@ -457,23 +803,138 @@ function EditorWorkspace({ id }: { id: string }) {
     const type = e.dataTransfer.getData('application/eimax-block') as BlockType;
     if (blockTypes.includes(type)) addBlock(type, rf.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
   };
-  const autoLayout = () => {
-    if (!flow) return;
-    const graph = new dagre.graphlib.Graph();
-    graph.setDefaultEdgeLabel(() => ({}));
-    graph.setGraph({ rankdir: 'TB', nodesep: 90, ranksep: 90 });
-    flow.nodes.forEach((n) => graph.setNode(n.id, { width: 240, height: 126 }));
-    flow.edges.forEach((e) => graph.setEdge(e.source, e.target));
-    dagre.layout(graph);
+  /** Próxima posição livre à direita do bloco selecionado ou, sem seleção, do bloco mais à direita. */
+  function nextFreeSpot() {
+    if (!flow?.nodes.length) return undefined;
+    const anchor =
+      flow.nodes.find((n) => n.id === selected.at(-1)) ??
+      flow.nodes.reduce((a, b) => (b.position.x > a.position.x ? b : a));
+    return freeSpot(flow.nodes, { x: anchor.position.x + NODE_STEP, y: anchor.position.y });
+  }
+  /** Enquadramento: fluxo inteiro no desktop; no celular, começa pelo gatilho com zoom mínimo legível. */
+  /**
+   * Enquadramento: fluxo inteiro no desktop; no celular/toque, zoom mínimo legível (60%) com o
+   * gatilho encostado à esquerda; o restante se alcança arrastando o canvas.
+   */
+  function frame(duration = 0) {
+    if (!flow?.nodes.length || !isCompact()) {
+      void rf.fitView({ padding: 0.18, maxZoom: 0.95, duration });
+      return;
+    }
+    const start = flow.nodes.find((n) => triggerTypes.includes(n.type)) ?? flow.nodes[0];
+    const area = document.querySelector('.canvas-area')?.getBoundingClientRect();
+    const width = area?.width ?? 330;
+    const height = area?.height ?? 600;
+    const zoom = Math.min(0.95, Math.max(0.6, width / (NODE_STEP * 2.6)));
+    void rf.setViewport(
+      { x: 36 - start.position.x * zoom, y: height / 2 - (start.position.y + NODE_SIZE / 2) * zoom, zoom },
+      { duration },
+    );
+  }
+  /** Insere um bloco no meio de uma ligação: origem → novo → destino, abrindo espaço só se faltar. */
+  const insertOnEdge = (edgeId: string, type: BlockType) => {
+    setInsertEdge(undefined);
+    if (readOnly || !flow) return;
+    const edge = flow.edges.find((e) => e.id === edgeId);
+    const source = flow.nodes.find((n) => n.id === edge?.source);
+    const target = flow.nodes.find((n) => n.id === edge?.target);
+    if (!edge || !source || !target) {
+      setToast('Esta ligação não existe mais.');
+      return;
+    }
+    if (flow.nodes.length >= 100) {
+      setToast('O limite desta fase é de 100 blocos por processo.');
+      return;
+    }
+    const position = { x: source.position.x + NODE_STEP, y: target.position.y };
+    const shift = position.x + NODE_STEP - target.position.x;
+    const pushed = new Set<string>();
+    if (shift > 0) {
+      const queue = [target.id];
+      while (queue.length) {
+        const current = queue.shift()!;
+        if (pushed.has(current) || current === source.id) continue;
+        pushed.add(current);
+        flow.edges.filter((e) => e.source === current).forEach((e) => queue.push(e.target));
+      }
+    }
+    const block: WorkflowNode = {
+      id: uid(),
+      type,
+      name: catalog[type].name,
+      description: '',
+      config: { ...catalog[type].defaults },
+      position,
+    };
     change((f) => ({
       ...f,
-      nodes: f.nodes.map((n) => {
-        const p = graph.node(n.id);
-        return { ...n, position: { x: p.x - 120, y: p.y - 63 } };
-      }),
+      nodes: [
+        ...f.nodes.map((n) =>
+          pushed.has(n.id) ? { ...n, position: { x: n.position.x + shift, y: n.position.y } } : n,
+        ),
+        block,
+      ],
+      edges: [
+        ...f.edges.filter((e) => e.id !== edge.id),
+        { id: uid(), source: source.id, target: block.id, ...(edge.branch ? { branch: edge.branch } : {}) },
+        {
+          id: uid(),
+          source: block.id,
+          target: target.id,
+          ...(type === 'condition' ? { branch: 'true' as const } : {}),
+        },
+      ],
     }));
-    setTimeout(() => rf.fitView({ padding: 0.17, duration: 200 }), 30);
-    setToast('Blocos organizados. Você pode desfazer esta ação.');
+    setSelected([block.id]);
+    setSelectedEdges([]);
+    setHoverEdge(undefined);
+    setInspector(true);
+    focusCanvas(block.id);
+    setToast(
+      `${catalog[type].name} inserido entre “${source.name}” e “${target.name}”.` +
+        (type === 'condition' ? ' O destino ficou no ramo “Sim”; ligue o ramo “Não” para publicar.' : ''),
+    );
+  };
+  /** Organiza da esquerda para a direita; com mais de um bloco selecionado, organiza só a seleção. */
+  const autoLayout = () => {
+    if (!flow || readOnly) return;
+    // Só conta blocos que ainda existem (desfazer pode deixar ids de cópias removidas na seleção).
+    const chosen = selected.filter((nodeId) => flow.nodes.some((n) => n.id === nodeId));
+    const only = chosen.length > 1 ? new Set(chosen) : undefined;
+    const targets = flow.nodes.filter((n) => !only || only.has(n.id));
+    if (!targets.length) return;
+    const graph = new dagre.graphlib.Graph();
+    graph.setDefaultEdgeLabel(() => ({}));
+    graph.setGraph({ rankdir: 'LR', nodesep: 70, ranksep: NODE_GAP });
+    // Altura inclui o nome abaixo do bloco; o ramo Sim entra antes do Não para ficar acima.
+    targets.forEach((n) => graph.setNode(n.id, { width: NODE_SIZE, height: NODE_SIZE + 50 }));
+    [...flow.edges]
+      .sort((a, b) => (a.branch === 'false' ? 1 : 0) - (b.branch === 'false' ? 1 : 0))
+      .filter((e) => !only || (only.has(e.source) && only.has(e.target)))
+      .forEach((e) => graph.setEdge(e.source, e.target));
+    dagre.layout(graph);
+    const laid = targets.map((n) => {
+      const p = graph.node(n.id);
+      return { id: n.id, x: p.x - NODE_SIZE / 2, y: p.y - (NODE_SIZE + 50) / 2 };
+    });
+    // Mantém o canto superior esquerdo original do conjunto organizado.
+    const originX = Math.min(...targets.map((n) => n.position.x));
+    const originY = Math.min(...targets.map((n) => n.position.y));
+    const minX = Math.min(...laid.map((p) => p.x));
+    const minY = Math.min(...laid.map((p) => p.y));
+    const next = new Map(
+      laid.map((p) => [p.id, { x: Math.round(p.x - minX + originX), y: Math.round(p.y - minY + originY) }]),
+    );
+    change((f) => ({
+      ...f,
+      nodes: f.nodes.map((n) => (next.has(n.id) ? { ...n, position: next.get(n.id)! } : n)),
+    }));
+    setTimeout(() => frame(200), 30);
+    setToast(
+      only
+        ? 'Seleção organizada da esquerda para a direita. Você pode desfazer esta ação.'
+        : 'Blocos organizados da esquerda para a direita. Você pode desfazer esta ação.',
+    );
   };
   const simulate = async () => {
     const parsed = leadSchema.safeParse(lead);
@@ -492,6 +953,8 @@ function EditorWorkspace({ id }: { id: string }) {
       setRun(result);
       setShowRun(false);
       setExecution({});
+      setRealRunId(undefined);
+      setSimPainted(true);
       setModal(undefined);
       const token = ++playback.current;
       for (const step of result.steps.filter((s) => s.status !== 'skipped')) {
@@ -822,16 +1285,20 @@ function EditorWorkspace({ id }: { id: string }) {
         <div className="canvas-column">
           <div
             className="canvas-area"
+            tabIndex={-1}
             onDrop={drop}
             onDragOver={(e) => {
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
             }}
           >
-            <ReactFlow<FlowNode>
+            <ReactFlow<FlowNode, LinkEdge>
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onEdgeMouseEnter={(_, edge) => hover(edge.id)}
+              onEdgeMouseLeave={() => hover(undefined)}
               onNodesChange={onNodesChange}
               onNodeDragStart={() => state.checkpoint()}
               onConnect={connect}
@@ -863,6 +1330,9 @@ function EditorWorkspace({ id }: { id: string }) {
               onMove={(_, viewport) => setZoom(Math.round(viewport.zoom * 100))}
               fitView
               fitViewOptions={{ padding: 0.18, maxZoom: 0.95 }}
+              onInit={() => {
+                if (isCompact()) setTimeout(() => frame(), 120);
+              }}
               minZoom={0.25}
               maxZoom={1.8}
               deleteKeyCode={null}
@@ -878,11 +1348,40 @@ function EditorWorkspace({ id }: { id: string }) {
               defaultEdgeOptions={{ interactionWidth: 25 }}
             >
               <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#d9d5e5" />
-              <Panel position="top-left" className="canvas-caption">
-                <span className="live-dot" />
-                <strong>Seu próximo grande processo</strong>
-                <span>começa aqui.</span>
-              </Panel>
+              {canvasRun ? (
+                <Panel position="top-left">
+                  <div
+                    className="vx-run-chip"
+                    role="status"
+                    data-testid="canvas-run"
+                    title={
+                      canvasRun.source === 'real'
+                        ? `Execução real${versionNote}. Os dados pertencem à versão publicada e podem diferir do rascunho.`
+                        : 'Simulação desta sessão, calculada sobre o rascunho no momento do teste.'
+                    }
+                  >
+                    <span className={`vx-run-dot ${canvasRun.source}`} aria-hidden="true" />
+                    <span className="vx-run-short">
+                      {canvasRun.source === 'simulation' ? 'Simulação' : 'Execução real'}
+                    </span>
+                    <span className="vx-run-long">
+                      {canvasRun.source === 'simulation'
+                        ? 'Exibindo a simulação desta sessão'
+                        : `Exibindo a execução real${shownReal?.leadSummary?.name ? ` de ${shownReal.leadSummary.name}` : ''} · ${stepStatusLabel(shownReal?.status ?? '')}${versionNote}`}
+                    </span>
+                    <button type="button" onClick={clearCanvasRun} aria-label="Limpar execução do canvas">
+                      <X size={13} aria-hidden="true" />
+                      Limpar
+                    </button>
+                  </div>
+                </Panel>
+              ) : (
+                <Panel position="top-left" className="canvas-caption">
+                  <span className="live-dot" />
+                  <strong>Seu próximo grande processo</strong>
+                  <span>começa aqui.</span>
+                </Panel>
+              )}
               <Panel position="top-right">
                 <div className="canvas-tools">
                   <button
@@ -898,7 +1397,7 @@ function EditorWorkspace({ id }: { id: string }) {
                   </button>
                   <button
                     className="icon-btn"
-                    title="Organizar blocos automaticamente"
+                    title="Organizar da esquerda para a direita (só a seleção, com dois ou mais blocos selecionados)"
                     aria-label="Organizar blocos"
                     onClick={autoLayout}
                     disabled={readOnly}
@@ -955,14 +1454,20 @@ function EditorWorkspace({ id }: { id: string }) {
                   <button
                     aria-label="Enquadrar processo"
                     title="Enquadrar processo"
-                    onClick={() => rf.fitView({ padding: 0.18, duration: 200 })}
+                    onClick={() => frame(200)}
                   >
                     <Maximize size={15} />
                   </button>
                 </div>
               </Panel>
-              {selectedEdges.length > 0 && (
-                <Panel position="bottom-center">
+              {selectedEdges.length > 0 && !readOnly && (
+                <Panel position="bottom-center" className="vx-edge-panel">
+                  {selectedEdges.length === 1 && (
+                    <Button onClick={() => setInsertEdge(selectedEdges[0])}>
+                      <Plus size={14} />
+                      Inserir bloco
+                    </Button>
+                  )}
                   <Button variant="danger" onClick={remove} disabled={readOnly}>
                     <Trash2 size={14} />
                     Excluir conexão
@@ -985,7 +1490,17 @@ function EditorWorkspace({ id }: { id: string }) {
             <div className="durable-editor-status">
               <strong>Execuções reais</strong>
               {realRuns.slice(0, 3).map((row) => (
-                <button className="btn" key={row.id} onClick={() => setRealRunId(row.id)}>
+                <button
+                  className={`btn${realRunId === row.id ? ' is-active' : ''}`}
+                  key={row.id}
+                  aria-pressed={realRunId === row.id}
+                  title={
+                    realRunId === row.id
+                      ? 'Clique de novo para voltar o canvas ao estado sem execução'
+                      : 'Mostrar esta execução no canvas'
+                  }
+                  onClick={() => (realRunId === row.id ? clearCanvasRun() : setRealRunId(row.id))}
+                >
                   {row.status === 'SUSPENDED'
                     ? 'Aguardando'
                     : row.status === 'COMPLETED'
@@ -1007,7 +1522,7 @@ function EditorWorkspace({ id }: { id: string }) {
           {realRunId && realRuns.find((r) => r.id === realRunId) && (
             <RunLog
               run={{ ...realRuns.find((r) => r.id === realRunId)!, mode: 'real' }}
-              onClose={() => setRealRunId(undefined)}
+              onClose={clearCanvasRun}
             />
           )}
           {run && showRun && <RunLog run={run} onClose={() => setShowRun(false)} />}
@@ -1330,6 +1845,18 @@ function EditorWorkspace({ id }: { id: string }) {
           {state.error && <p className="danger-text">{state.error}</p>}
         </Dialog>
       )}
+      {insertEdge &&
+        (() => {
+          const edge = flow.edges.find((e) => e.id === insertEdge);
+          return (
+            <InsertPicker
+              sourceName={flow.nodes.find((n) => n.id === edge?.source)?.name ?? 'origem'}
+              targetName={flow.nodes.find((n) => n.id === edge?.target)?.name ?? 'destino'}
+              onPick={(type) => insertOnEdge(insertEdge, type)}
+              onClose={() => setInsertEdge(undefined)}
+            />
+          );
+        })()}
       {modal === 'help' && (
         <Dialog title="Da ideia ao processo, sem complicar" onClose={() => setModal(undefined)}>
           <ol className="help-steps">
@@ -1340,8 +1867,9 @@ function EditorWorkspace({ id }: { id: string }) {
             <li>
               <strong>Conecte os próximos passos</strong>
               <p>
-                Arraste de uma alça inferior até a entrada de outro bloco. Selecione uma conexão para
-                excluí-la ou arraste sua ponta para reconectar.
+                Arraste da saída à direita de um bloco até a entrada à esquerda de outro. Passe o mouse sobre
+                uma ligação (ou toque nela) para inserir um bloco no meio ou excluí-la; arraste sua ponta para
+                reconectar.
               </p>
             </li>
             <li>

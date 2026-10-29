@@ -391,12 +391,13 @@ export function createSdrTemplate(): Workflow {
     schemaVersion: 1,
     name: 'Qualificação de leads',
     nodes: [
-      make('trigger', 'lead.created', 250, 40),
-      make('qualify', 'condition', 250, 220, 'Qualificar oportunidade'),
-      make('assign', 'sdr.assign', 65, 430),
-      make('nurture', 'email.send', 440, 430, 'Iniciar relacionamento'),
-      make('tag', 'tag.add', 65, 620),
-      make('notify', 'manager.notify', 65, 810),
+      // Da esquerda para a direita: entrada à esquerda, saídas à direita (Sim acima, Não abaixo).
+      make('trigger', 'lead.created', 40, 180),
+      make('qualify', 'condition', 280, 180, 'Qualificar oportunidade'),
+      make('assign', 'sdr.assign', 520, 60),
+      make('nurture', 'email.send', 520, 300, 'Iniciar relacionamento'),
+      make('tag', 'tag.add', 760, 60),
+      make('notify', 'manager.notify', 1000, 60),
     ],
     edges: [
       { id: 'e1', source: 'trigger', target: 'qualify' },
