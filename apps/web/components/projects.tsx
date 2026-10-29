@@ -22,8 +22,16 @@ import {
   Workflow,
   ShieldCheck,
 } from 'lucide-react';
-import { api, type ProjectRecord, type ProjectWorkflow } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type ActivationError,
+  type ActivationState,
+  type ProjectRecord,
+  type ProjectWorkflow,
+} from '@/lib/api';
 import { Button, Dialog } from './ui';
+import { ActivationSwitch } from './workflow-activation';
 import { RunList } from './listings';
 
 const date = (value: string) =>
@@ -542,6 +550,47 @@ export function ProjectWorkspace({ id, initialTab = 'fluxos' }: { id: string; in
       setBusy(false);
     }
   };
+  /** Interruptor "Ativo" da lista: mesma rota do editor, com a revisão da linha. */
+  const toggleActive = async (workflow: ProjectWorkflow) => {
+    if (busy) return;
+    setBusy(true);
+    setError('');
+    const next = !((workflow.active ?? true) && workflow.versions > 0);
+    const apply = (state: ActivationState) =>
+      setFlows((rows) =>
+        rows.map((row) =>
+          row.id === state.id
+            ? {
+                ...row,
+                activationRevision: state.activationRevision,
+                active: state.active,
+                activationError: state.activationError,
+              }
+            : row,
+        ),
+      );
+    try {
+      apply(
+        await api<ActivationState>(`/workflows/${workflow.id}/${next ? 'activate' : 'deactivate'}`, {
+          method: 'POST',
+          body: JSON.stringify({ activationRevision: workflow.activationRevision }),
+        }),
+      );
+    } catch (e) {
+      const state = e instanceof ApiError ? (e.body.workflow as ActivationState | undefined) : undefined;
+      if (state) apply(state);
+      const saved = e instanceof ApiError ? (e.body.activationError as ActivationError | undefined) : undefined;
+      // Mensagens do servidor antigo (rota inexistente) vêm em inglês: mostra um texto em pt-BR.
+      const message =
+        e instanceof ApiError && e.status === 404
+          ? 'A API em execução ainda não oferece ativar ou desativar fluxos. Reinicie a API depois de aplicar a migração 20.'
+          : (e as Error).message;
+      setError(saved ? `${workflow.name}: ${saved.message} ${saved.action}` : `${workflow.name}: ${message}`);
+      if (e instanceof ApiError && e.status === 409) await reload();
+    } finally {
+      setBusy(false);
+    }
+  };
   const visible = flows.filter(
     (f) =>
       Boolean(f.archivedAt) === showArchived &&
@@ -676,6 +725,30 @@ export function ProjectWorkspace({ id, initialTab = 'fluxos' }: { id: string; in
                           {f.archivedAt ? 'Arquivado' : f.versions ? 'Publicado' : 'Rascunho'}
                         </span>
                         <div className="project-flow-actions">
+                          {!f.archivedAt && f.activationRevision !== undefined && (
+                            <ActivationSwitch
+                              compact
+                              label={`Ativo: ${f.name}`}
+                              on={(f.active ?? true) && f.versions > 0}
+                              busy={busy}
+                              disabledReason={
+                                !canEdit
+                                  ? 'Somente proprietário ou editor pode ativar ou desativar.'
+                                  : !f.versions
+                                    ? 'Publique uma versão para ativar este fluxo.'
+                                    : undefined
+                              }
+                              onToggle={() => void toggleActive(f)}
+                            />
+                          )}
+                          {f.activationError && !f.active && (
+                            <span className="project-activation-error" role="status">
+                              Erro de ativação
+                              <span className="vx-sr-only">
+                                : {f.activationError.message} {f.activationError.action}
+                              </span>
+                            </span>
+                          )}
                           <Link className="btn" href={`/editor/${f.id}`}>
                             Abrir
                             <ArrowRight size={14} />

@@ -8,7 +8,7 @@ import {
 import { Prisma } from '@prisma/client';
 import { createSdrTemplate, type Workflow } from '@eimax/workflow-schema';
 import { json } from './contracts';
-import { WorkflowService } from './workflow.service';
+import { archiveDeactivation, WorkflowService } from './workflow.service';
 
 export function normalizedProjectName(name: string) {
   return name.normalize('NFKC').trim().replace(/\s+/gu, ' ').toLowerCase();
@@ -178,7 +178,7 @@ export class ProjectService {
           revision: { increment: 1 },
           ...(action === 'rename' ? { draft: json({ ...draft, name: input.name! }) } : {}),
           ...(action === 'move' ? { projectId: input.projectId } : {}),
-          ...(action === 'archive' ? { archivedAt: new Date() } : {}),
+          ...(action === 'archive' ? { archivedAt: new Date(), ...archiveDeactivation(current.active) } : {}),
           ...(action === 'restore' ? { archivedAt: null } : {}),
         },
       });

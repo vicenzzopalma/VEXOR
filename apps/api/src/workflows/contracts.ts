@@ -22,6 +22,10 @@ export const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
 
 export const saveSchema = z.object({ revision: z.number().int().positive(), draft: workflowSchema }).strict();
 export const revisionSchema = z.object({ revision: z.number().int().positive() }).strict();
+/** Ativar/desativar: revisão própria do interruptor (`activationRevision`), não a do rascunho. */
+export const activationSchema = z
+  .object({ activationRevision: z.number().int().positive().max(2147483647) })
+  .strict();
 export const executionSearchSchema = z
   .object({
     page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -35,7 +39,14 @@ export const executionSearchSchema = z
     message: 'A data inicial deve ser anterior à data final.',
     path: ['until'],
   });
-export const simulateSchema = z.object({ revision: z.number().int().positive(), lead: leadSchema }).strict();
+export const simulateSchema = z
+  .object({
+    revision: z.number().int().positive(),
+    lead: leadSchema,
+    // Testar até este bloco: a simulação para no bloco escolhido (validado no servidor).
+    targetNodeId: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
 
 export const executeSchema = z
   .object({

@@ -1,7 +1,14 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Workflow } from '@eimax/workflow-schema';
-import { api, ApiError, type WorkflowRecord, type VersionInfo, type ProjectRecord } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type ActivationError,
+  type WorkflowRecord,
+  type VersionInfo,
+  type ProjectRecord,
+} from '@/lib/api';
 export function useEditorState(id: string) {
   const [flow, setFlow] = useState<Workflow>();
   const [project, setProject] = useState<ProjectRecord>();
@@ -11,6 +18,13 @@ export function useEditorState(id: string) {
   const [error, setError] = useState('');
   const [versions, setVersions] = useState<VersionInfo[]>([]);
   const [role, setRole] = useState('viewer');
+  // Estado do interruptor "Ativo", com revisão própria (não conflita com o salvamento do rascunho).
+  // `revision` ausente: API em execução anterior à migração 20, sem ativar/desativar.
+  const [activation, setActivation] = useState<{
+    active: boolean;
+    error: ActivationError | null;
+    revision?: number;
+  }>({ active: true, error: null });
   const [saveStatus, setSaveStatus] = useState<'saved' | 'dirty' | 'saving' | 'error' | 'conflict'>('saved');
   const revision = useRef(1);
   const saved = useRef('');
@@ -35,6 +49,11 @@ export function useEditorState(id: string) {
         revision.current = record.revision;
         saved.current = JSON.stringify(record.draft);
         setVersions(record.versions);
+        setActivation({
+          active: record.active ?? true,
+          error: record.activationError ?? null,
+          revision: record.activationRevision,
+        });
         setProject(record.project);
         setArchived(Boolean(record.archivedAt || record.project.archivedAt));
         setRole(me.role);
@@ -161,5 +180,7 @@ export function useEditorState(id: string) {
     versions,
     setVersions,
     role,
+    activation,
+    setActivation,
   };
 }

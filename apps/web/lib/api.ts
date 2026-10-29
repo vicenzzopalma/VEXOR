@@ -1,11 +1,27 @@
 import type { Workflow, SimulationResult } from '@eimax/workflow-schema';
 export type VersionInfo = { id: string; number: number; createdAt: string };
+/** Erro de ativação salvo no fluxo (código, mensagem e ação sugerida em pt-BR). */
+export type ActivationError = { code: string; message: string; action: string; nodeId?: string; at: string };
+/** Estado devolvido por POST /workflows/:id/activate e /deactivate. */
+export type ActivationState = {
+  id: string;
+  /** Revisão própria do interruptor (não é a revisão do rascunho). */
+  activationRevision: number;
+  active: boolean;
+  activationError: ActivationError | null;
+  activeChangedAt: string | null;
+  activeVersion: { id: string; number: number } | null;
+};
 export type WorkflowRecord = {
   id: string;
   projectId: string;
   project: ProjectRecord;
   draft: Workflow;
   revision: number;
+  /** Ausentes quando a API em execução é anterior à migração 20. */
+  active?: boolean;
+  activationRevision?: number;
+  activationError?: ActivationError | null;
   archivedAt?: string | null;
   updatedAt: string;
   versions: VersionInfo[];
@@ -29,6 +45,10 @@ export type ProjectWorkflow = {
   name: string;
   revision: number;
   archivedAt: string | null;
+  /** Ausentes quando a API em execução é anterior à migração 20. */
+  active?: boolean;
+  activationRevision?: number;
+  activationError?: ActivationError | null;
   updatedAt: string;
   nodeCount: number;
   versions: number;
@@ -40,6 +60,7 @@ export class ApiError extends Error {
     message: string,
     public status: number,
     public issues: Array<{ nodeId?: string; message: string }> = [],
+    public body: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -72,10 +93,16 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
       typeof data.message === 'string' ? data.message : 'O servidor não conseguiu concluir a ação.',
       response.status,
       data.issues ?? [],
+      data,
     );
   return data as T;
 }
-export type Run = SimulationResult & { workflowId: string };
+export type Run = SimulationResult & {
+  workflowId: string;
+  /** Testar até este bloco: simulação parcial. */
+  targetNodeId?: string;
+  reachedTarget?: boolean | null;
+};
 
 export type LeadRecord = {
   revision: number;
@@ -143,6 +170,7 @@ export type ExecutionRecord = {
     recoveryError?: string | null;
   }>;
   errorCode?: string;
+  durationMs?: number | null;
   id: string;
   workflowId: string;
   eventKey: string;

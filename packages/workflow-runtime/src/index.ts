@@ -32,6 +32,14 @@ export interface EnqueueParams {
   sourceEvent?: { id: string; createdAt: Date };
 }
 
+/** O fluxo está desativado ou arquivado: nenhum gatilho (API, webhook, WhatsApp) cria execução. */
+export class WorkflowInactiveError extends Error {
+  readonly code = 'WORKFLOW_INACTIVE';
+  constructor(readonly reason: 'inactive' | 'archived' = 'inactive') {
+    super('WORKFLOW_INACTIVE');
+  }
+}
+
 export async function enqueueInTransaction(
   tx: Prisma.TransactionClient,
   params: Omit<EnqueueParams, 'prisma'>,
@@ -43,6 +51,13 @@ export async function enqueueInTransaction(
     include,
   });
   if (existing) return { execution: existing, idempotentHit: true };
+  // FOR SHARE serializa com a desativação (FOR UPDATE): um fluxo inativo nunca ganha execução nova.
+  // Lança antes de qualquer escrita: quem chama dentro de uma transação maior pode pular o fluxo.
+  const flows = await tx.$queryRaw<
+    Array<{ active: boolean; archivedAt: Date | null }>
+  >`SELECT "active", "archivedAt" FROM "Workflow" WHERE "id"=${workflowId} AND "organization_id"=${organizationId} FOR SHARE`;
+  if (flows[0]?.archivedAt) throw new WorkflowInactiveError('archived');
+  if (flows[0] && !flows[0].active) throw new WorkflowInactiveError();
   const lead = leadSchema.parse(params.leadData);
   const { message: _message, ...leadFields } = lead;
   const version = await tx.workflowVersion.findFirst({

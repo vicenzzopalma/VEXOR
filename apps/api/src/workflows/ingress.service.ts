@@ -54,6 +54,9 @@ export class IngressService {
       return result;
     } catch (error) {
       const status = error instanceof HttpException ? error.getStatus() : 500;
+      const body = error instanceof HttpException ? error.getResponse() : undefined;
+      const inactive =
+        typeof body === 'object' && body !== null && (body as { code?: string }).code === 'WORKFLOW_INACTIVE';
       await db.webhookIngressLog.create({
         data: {
           id: requestId,
@@ -61,8 +64,9 @@ export class IngressService {
           source,
           resourceId: resourceId.slice(0, 200),
           outcome: 'REJECTED',
-          code:
-            status === 429
+          code: inactive
+            ? 'WORKFLOW_INACTIVE'
+            : status === 429
               ? 'RATE_LIMITED'
               : status === 401
                 ? 'AUTHENTICATION_REJECTED'

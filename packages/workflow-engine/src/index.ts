@@ -279,8 +279,13 @@ export async function interpretWorkflow(
   rawLead: Lead,
   effects: EffectAdapter,
   durable?: { state?: ContinuationState; suspended?: Suspension },
+  options: { targetNodeId?: string } = {},
 ): Promise<StepLog[]> {
-  const errors = validateWorkflow(workflow);
+  const target = options.targetNodeId;
+  if (target && !workflow.nodes.some((n) => n.id === target)) throw new Error('TARGET_NOT_FOUND');
+  // Até um bloco: só o trecho entre o gatilho e o bloco escolhido precisa estar válido.
+  const scope = target ? ancestorsOf(workflow, target) : undefined;
+  const errors = target ? partialIssues(workflow, target) : validateWorkflow(workflow);
   if (errors.length) throw new Error(errors.map((e) => e.message).join('\n'));
   const lead = leadSchema.parse(durable?.state?.lead ?? rawLead);
   const steps: StepLog[] = [];
@@ -299,6 +304,8 @@ export async function interpretWorkflow(
     name: '[oculto]',
   };
   while (id) {
+    // O lead seguiu um ramo que não leva ao bloco escolhido: o teste parcial termina aqui.
+    if (scope && !scope.has(id)) break;
     if (visited.has(id)) throw new Error('Ciclo detectado.');
     visited.add(id);
     const node = workflow.nodes.find((n) => n.id === id)!;
@@ -392,9 +399,12 @@ export async function interpretWorkflow(
         message: dynamic ? 'Etapa executada com variáveis; conteúdo protegido no histórico.' : message,
         durationMs: Math.max(1, Math.round(performance.now() - start)),
       });
-      id = workflow.edges.find(
-        (e) => e.source === node.id && (node.type !== 'condition' || e.branch === nextBranch),
-      )?.target;
+      id =
+        node.id === target
+          ? undefined
+          : workflow.edges.find(
+              (e) => e.source === node.id && (node.type !== 'condition' || e.branch === nextBranch),
+            )?.target;
     } catch (error) {
       const code =
         error instanceof Error && Object.hasOwn(actionErrors, error.message) ? error.message : undefined;
@@ -422,14 +432,61 @@ export async function interpretWorkflow(
         input: {},
         output: {},
         durationMs: 0,
-        message: 'Este bloco pertence a outro caminho.',
+        message: !scope
+          ? 'Este bloco pertence a outro caminho.'
+          : scope.has(n.id)
+            ? 'Não alcançado: o lead de exemplo seguiu outro caminho antes deste bloco.'
+            : 'Fora do trecho testado até o bloco escolhido.',
       }),
     );
   return steps;
 }
 
+/** Blocos que levam até `nodeId` (inclui o próprio bloco), seguindo as ligações para trás. */
+export function ancestorsOf(workflow: Workflow, nodeId: string): Set<string> {
+  const found = new Set<string>([nodeId]);
+  const queue = [nodeId];
+  while (queue.length) {
+    const current = queue.shift()!;
+    for (const edge of workflow.edges)
+      if (edge.target === current && !found.has(edge.source)) {
+        found.add(edge.source);
+        queue.push(edge.source);
+      }
+  }
+  return found;
+}
+
+/** O bloco é alcançável a partir do gatilho seguindo as ligações. */
+export function reachableFromTrigger(workflow: Workflow, nodeId: string): boolean {
+  const trigger = workflow.nodes.find((n) => triggerTypes.includes(n.type));
+  return !!trigger && ancestorsOf(workflow, nodeId).has(trigger.id);
+}
+
+/**
+ * Validação do teste parcial: problemas de blocos fora do trecho até o bloco escolhido, blocos soltos
+ * e ramos de condição sem ligação não impedem o teste (o percurso termina se o ramo faltar).
+ */
+export function partialIssues(workflow: Workflow, targetNodeId: string) {
+  const scope = ancestorsOf(workflow, targetNodeId);
+  return validateWorkflow(workflow).filter((issue) =>
+    issue.nodeId
+      ? scope.has(issue.nodeId) && issue.code !== 'CONDITION_BRANCHES'
+      : issue.code !== 'DISCONNECTED',
+  );
+}
+
 export function simulateWorkflow(workflow: Workflow, lead: Lead): Promise<StepLog[]> {
   return interpretWorkflow(workflow, lead, simulationEffects);
+}
+
+/** Simulação só até um bloco: percorre os ancestrais necessários com o lead e para no bloco escolhido. */
+export async function simulateUntil(workflow: Workflow, lead: Lead, targetNodeId: string) {
+  const steps = await interpretWorkflow(workflow, lead, simulationEffects, undefined, { targetNodeId });
+  return {
+    steps,
+    reachedTarget: steps.some((s) => s.nodeId === targetNodeId && s.status !== 'skipped'),
+  };
 }
 
 export async function executeWorkflow(

@@ -21,7 +21,7 @@ it('histórico completo de migrações reproduz schema e guardas em banco isolad
     child.on('exit', (code) => (code === 0 ? resolve(output) : reject(new Error('Migration replay failed'))));
   });
   expect(JSON.parse(output.trim())).toMatchObject({
-    migrations: 19,
+    migrations: 20,
     schemaDiffEmpty: true,
     applicationDatabaseReset: false,
   });

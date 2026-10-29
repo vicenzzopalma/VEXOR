@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { type Workflow } from '@eimax/workflow-schema';
 import { QUARANTINE_STATUS_REASONS } from '@eimax/connectors';
-import { enqueueInTransaction } from './index';
+import { enqueueInTransaction, WorkflowInactiveError } from './index';
 import { captureOptOutInTransaction } from './opt-out';
 
 export async function processNextWhatsAppEvent(db: PrismaClient) {
@@ -19,6 +19,7 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
           include: { connection: true },
         });
         const connection = event.connection;
+        let skippedInactive = false;
         // A "SAIR" reply is honoured even when the connection is disabled or no workflow is routed:
         // the opt-out is recorded for the connection's organization and queued for Esfera.
         if (event.kind === 'MESSAGE') {
@@ -75,7 +76,20 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
           });
           if (versions.length !== (event.routing as string[]).length)
             throw new Error('INVALID_EVENT_ROUTING');
+          // Fluxo desativado ou arquivado depois do roteamento não recebe a mensagem. Bloqueia TODAS as
+          // linhas roteadas (FOR SHARE) para decidir com um estado estável; o descadastro acima nunca é
+          // desfeito pelo estado de um fluxo.
+          const states = versions.length
+            ? await tx.$queryRaw<
+                Array<{ id: string; active: boolean; archivedAt: Date | null }>
+              >`SELECT "id", "active", "archivedAt" FROM "Workflow" WHERE "id" IN (${Prisma.join(
+                versions.map((v) => v.workflowId),
+              )}) AND "organization_id"=${connection.organizationId} ORDER BY "id" FOR SHARE`
+            : [];
+          const inactive = new Set(states.filter((s) => !s.active || s.archivedAt).map((s) => s.id));
+          let delivered = 0;
           for (const version of versions) {
+            if (inactive.has(version.workflowId)) continue;
             const flow = version.snapshot as unknown as Workflow;
             if (
               !flow.nodes.some(
@@ -101,12 +115,30 @@ export async function processNextWhatsAppEvent(db: PrismaClient) {
                 score: 0,
                 source: 'whatsapp',
               },
-            });
+            }).then(
+              () => delivered++,
+              (error: unknown) => {
+                // Corrida: o fluxo ficou inativo entre a leitura acima e o enfileiramento. Pula só ele.
+                if (!(error instanceof WorkflowInactiveError)) throw error;
+                inactive.add(version.workflowId);
+              },
+            );
           }
+          if (versions.length && !delivered && inactive.size)
+            return tx.whatsAppEvent.update({
+              where: { id: event.id },
+              data: { status: 'IGNORED', processedAt: new Date(), errorCode: 'WORKFLOW_INACTIVE' },
+            });
+          skippedInactive = inactive.size > 0;
         }
         return tx.whatsAppEvent.update({
           where: { id: event.id },
-          data: { status: 'COMPLETED', attempt: { increment: 1 }, processedAt: new Date(), errorCode: null },
+          data: {
+            status: 'COMPLETED',
+            attempt: { increment: 1 },
+            processedAt: new Date(),
+            errorCode: skippedInactive ? 'SOME_WORKFLOWS_INACTIVE' : null,
+          },
         });
       },
       { timeout: 15000 },

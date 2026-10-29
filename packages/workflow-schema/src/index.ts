@@ -259,7 +259,8 @@ export const workflowSchema = z
 export type WorkflowNode = z.infer<typeof nodeSchema>;
 export type WorkflowEdge = z.infer<typeof edgeSchema>;
 export type Workflow = z.infer<typeof workflowSchema>;
-export type ValidationIssue = { nodeId?: string; message: string };
+/** `code` marca problemas que a simulação parcial ("Testar até este bloco") pode ignorar. */
+export type ValidationIssue = { nodeId?: string; message: string; code?: 'DISCONNECTED' | 'CONDITION_BRANCHES' };
 export const triggerTypes: readonly string[] = [
   'lead.created',
   'webhook.received',
@@ -317,7 +318,11 @@ export function validateWorkflow(flow: Workflow): ValidationIssue[] {
         !outgoing.some((e) => e.branch === 'true') ||
         !outgoing.some((e) => e.branch === 'false')
       )
-        issues.push({ nodeId: node.id, message: `${node.name}: conecte os caminhos Sim e Não.` });
+        issues.push({
+          nodeId: node.id,
+          message: `${node.name}: conecte os caminhos Sim e Não.`,
+          code: 'CONDITION_BRANCHES',
+        });
     } else if (outgoing.length > 1 || outgoing.some((e) => e.branch))
       issues.push({
         nodeId: node.id,
@@ -350,7 +355,7 @@ export function validateWorkflow(flow: Workflow): ValidationIssue[] {
   };
   triggers.forEach((n) => walk(n.id));
   if (flow.nodes.some((n) => !visited.has(n.id)))
-    issues.push({ message: 'Conecte todos os blocos ao gatilho inicial.' });
+    issues.push({ message: 'Conecte todos os blocos ao gatilho inicial.', code: 'DISCONNECTED' });
   flow.nodes.forEach((n) => walk(n.id));
   if (cycle) issues.push({ message: 'O processo contém um ciclo. Remova a conexão de retorno.' });
   return issues;

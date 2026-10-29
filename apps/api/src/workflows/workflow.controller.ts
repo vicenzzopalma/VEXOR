@@ -31,6 +31,7 @@ import {
   parse,
   registerSchema,
   revisionSchema,
+  activationSchema,
   Roles,
   saveSchema,
   simulateSchema,
@@ -121,6 +122,19 @@ export class WorkflowController {
   @Roles('owner')
   publish(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
     return this.workflows.publish(id, req.access.organizationId, parse(revisionSchema, body).revision);
+  }
+
+  // Ativo/inativo: fluxo inativo não é disparado por nenhum gatilho; ativar valida a versão publicada.
+  @Post('workflows/:id/activate')
+  @Roles('owner', 'editor')
+  activate(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
+    return this.workflows.setActive(id, req.access.organizationId, parse(activationSchema, body).activationRevision, true);
+  }
+
+  @Post('workflows/:id/deactivate')
+  @Roles('owner', 'editor')
+  deactivate(@Param('id') id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
+    return this.workflows.setActive(id, req.access.organizationId, parse(activationSchema, body).activationRevision, false);
   }
 
   @Post('workflows/:id/archive')

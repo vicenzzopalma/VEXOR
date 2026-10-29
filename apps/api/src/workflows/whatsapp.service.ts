@@ -581,7 +581,8 @@ export class WhatsAppService {
     await this.db.$transaction(async (tx) => {
       const workflows = events.some((e) => e.kind === 'MESSAGE')
         ? await tx.workflow.findMany({
-            where: { organizationId: row.organizationId, versions: { some: {} } },
+            // Fluxo inativo não é roteado; o worker confere de novo ao processar (pode ter sido desativado depois).
+            where: { organizationId: row.organizationId, active: true, archivedAt: null, versions: { some: {} } },
             include: { versions: { orderBy: { number: 'desc' }, take: 1 } },
           })
         : [];

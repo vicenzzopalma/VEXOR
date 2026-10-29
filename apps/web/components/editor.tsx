@@ -1,7 +1,15 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -47,6 +55,7 @@ import {
   Rocket,
   Search,
   Share2,
+  StepForward,
   Trash2,
   Undo2,
   Workflow,
@@ -66,7 +75,14 @@ import {
   type Workflow as WorkflowModel,
   type WorkflowNode,
 } from '@eimax/workflow-schema';
-import { api, ApiError, type ExecutionRecord } from '@/lib/api';
+import {
+  api,
+  ApiError,
+  type ActivationError,
+  type ActivationState,
+  type ExecutionRecord,
+  type WorkflowRecord as WorkflowRecordLite,
+} from '@/lib/api';
 import { Button, Dialog, Loading } from './ui';
 import { blockIcons } from './icons';
 import { WorkflowBlock, type FlowNode, type NodeRunState } from './workflow-node';
@@ -74,6 +90,11 @@ import { Inspector } from './inspector';
 import { useEditorState } from './editor-state';
 import { RunLog } from './run-log';
 import { NodeDetailBody, detailShortcut, stepStatusLabel } from './node-data-view';
+import { ActivationErrorBanner, ActivationSwitch } from './workflow-activation';
+import { WorkflowRuns } from './workflow-runs';
+
+/** Resultado de simulação; com `targetNodeId`, foi um "Testar até este bloco". */
+type SimRun = SimulationResult & { targetNodeId?: string; reachedTarget?: boolean };
 
 const nodeTypes = { workflow: WorkflowBlock };
 /** Tamanho do bloco no canvas e espaço horizontal entre colunas (rótulos de ligação e de saída cabem no vão). */
@@ -303,7 +324,30 @@ function EditorWorkspace({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState('');
   const [lead, setLead] = useState<Lead>({ ...sampleLead });
-  const [run, setRun] = useState<SimulationResult>();
+  const [run, setRun] = useState<SimRun>();
+  // Abas Editor | Execuções; a URL reflete a aba (?view=runs).
+  const searchParams = useSearchParams();
+  const urlView = searchParams.get('view') === 'runs' ? 'runs' : 'editor';
+  const [view, setViewState] = useState<'editor' | 'runs'>(urlView);
+  // Voltar/avançar do navegador ou um link com ?view=runs também trocam a aba.
+  useEffect(() => setViewState(urlView), [urlView]);
+  const setView = useCallback((next: 'editor' | 'runs') => {
+    setViewState(next);
+    const url = new URL(window.location.href);
+    if (next === 'runs') url.searchParams.set('view', 'runs');
+    else url.searchParams.delete('view');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+  // Execução escolhida na aba Execuções (pode não estar entre as 50 mais recentes do canvas).
+  const [pickedRun, setPickedRun] = useState<ExecutionRecord>();
+  const [activating, setActivating] = useState(false);
+  const [hiddenActivationError, setHiddenActivationError] = useState('');
+  const [testingNode, setTestingNode] = useState<string>();
+  const [testNote, setTestNote] = useState<{ kind: 'ok' | 'warn' | 'error'; text: string }>();
+  // Os blocos memorizados chamam sempre a versão atual (lead e detalhe abertos podem ter mudado).
+  const testUntilRef = useRef<(nodeId: string) => Promise<void>>(async () => {});
+  // O aviso do teste parcial pertence ao bloco aberto no detalhe.
+  useEffect(() => setTestNote(undefined), [detailNodeId]);
   const [showRun, setShowRun] = useState(false);
   const [realRuns, setRealRuns] = useState<ExecutionRecord[]>([]);
   const [realRunId, setRealRunId] = useState<string>();
@@ -432,8 +476,10 @@ function EditorWorkspace({ id }: { id: string }) {
   const issues = useMemo(() => (flow ? validateWorkflow(flow) : []), [flow]);
   const activeNode = flow?.nodes.find((n) => n.id === selected[0]);
   const detailNode = flow?.nodes.find((n) => n.id === detailNodeId);
-  const detailRun = detailSource === 'simulation' ? run : realRuns.find((item) => item.id === detailSource);
-  const shownReal = realRunId ? realRuns.find((r) => r.id === realRunId) : undefined;
+  const findReal = (runId?: string) =>
+    runId ? (realRuns.find((r) => r.id === runId) ?? (pickedRun?.id === runId ? pickedRun : undefined)) : undefined;
+  const detailRun = detailSource === 'simulation' ? run : findReal(detailSource);
+  const shownReal = findReal(realRunId);
   /**
    * Estado de cada bloco e ramo tomado por cada condição, vindos da execução real escolhida
    * (prioridade) ou da simulação desta sessão. Sem execução escolhida, o canvas fica neutro.
@@ -604,6 +650,8 @@ function EditorWorkspace({ id }: { id: string }) {
           execution: canvasRun?.states[block.id],
           invalid: !configSchemas[block.type].safeParse(block.config).success,
           readOnly,
+          testing: testingNode === block.id,
+          onTestUntil: () => void testUntilRef.current(block.id),
           onOpen: () => openNode(block.id),
           onDuplicate: () => duplicateNodes([block.id]),
           onDelete: () => {
@@ -613,7 +661,7 @@ function EditorWorkspace({ id }: { id: string }) {
         },
         selected: selected.includes(block.id),
       })),
-    [flow, selected, canvasRun, dimensions, openNode, readOnly, duplicateNodes, removeItems],
+    [flow, selected, canvasRun, dimensions, openNode, readOnly, duplicateNodes, removeItems, testingNode],
   );
   const edges: LinkEdge[] = useMemo(() => {
     const names = new Map((flow?.nodes ?? []).map((n) => [n.id, n]));
@@ -846,8 +894,17 @@ function EditorWorkspace({ id }: { id: string }) {
     const width = area?.width ?? 330;
     const height = area?.height ?? 600;
     const zoom = Math.min(0.95, Math.max(0.6, width / (NODE_STEP * 2.6)));
+    // Rascunho antigo, mais alto que largo (vertical): começa pelo topo, senão os blocos seguintes
+    // ficam sob os controles de zoom; o fluxo horizontal fica centralizado na altura.
+    const xs = flow.nodes.map((n) => n.position.x);
+    const ys = flow.nodes.map((n) => n.position.y);
+    const tall = Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
     void rf.setViewport(
-      { x: 36 - start.position.x * zoom, y: height / 2 - (start.position.y + NODE_SIZE / 2) * zoom, zoom },
+      {
+        x: 36 - start.position.x * zoom,
+        y: tall ? 64 - start.position.y * zoom : height / 2 - (start.position.y + NODE_SIZE / 2) * zoom,
+        zoom,
+      },
       { duration },
     );
   }
@@ -1008,7 +1065,11 @@ function EditorWorkspace({ id }: { id: string }) {
       );
       state.setVersions([version, ...state.versions.filter((v) => v.number !== version.number)]);
       setModal(undefined);
-      setToast(`Versão ${version.number} publicada. Nenhuma ação externa foi ativada.`);
+      setToast(
+        state.activation.active
+          ? `Versão ${version.number} publicada. O fluxo está ativo: os próximos eventos usam esta versão.`
+          : `Versão ${version.number} publicada. O fluxo continua inativo; ative-o para receber eventos.`,
+      );
     } catch (error) {
       state.setError(
         error instanceof ApiError && error.issues.length
@@ -1019,6 +1080,137 @@ function EditorWorkspace({ id }: { id: string }) {
       setBusy(false);
     }
   };
+  /** Abas com teclado: setas alternam, Home vai para Editor e End para Execuções. */
+  const tabKeys = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    const next =
+      event.key === 'Home'
+        ? 'editor'
+        : event.key === 'End'
+          ? 'runs'
+          : event.key === 'ArrowRight' || event.key === 'ArrowLeft'
+            ? view === 'editor'
+              ? 'runs'
+              : 'editor'
+            : undefined;
+    if (!next) return;
+    event.preventDefault();
+    setView(next);
+    document.getElementById(next === 'runs' ? 'editor-tab-runs' : 'editor-tab-editor')?.focus();
+  };
+  /** Testar até este bloco: simulação no servidor só até o bloco, com o lead de exemplo, sem efeitos externos. */
+  const testUntil = async (nodeId: string) => {
+    if (readOnly || testingNode) return;
+    const target = flow?.nodes.find((n) => n.id === nodeId);
+    const parsed = leadSchema.safeParse(lead);
+    if (!parsed.success || !target) {
+      setTestNote({ kind: 'error', text: parsed.success ? 'Bloco não encontrado.' : parsed.error.issues[0].message });
+      return;
+    }
+    playback.current++;
+    setTestingNode(nodeId);
+    setTestNote(undefined);
+    state.setError('');
+    try {
+      const revision = await state.save();
+      const result = await api<SimRun>(`/workflows/${id}/simulate`, {
+        method: 'POST',
+        body: JSON.stringify({ revision, lead: parsed.data, targetNodeId: nodeId }),
+      });
+      setRun(result);
+      setRealRunId(undefined);
+      setExecution(Object.fromEntries(result.steps.map((s) => [s.nodeId, s.status])));
+      setSimPainted(true);
+      setShowRun(false);
+      if (detailNodeId) {
+        pendingDetailSource.current = false;
+        setDetailSource('simulation');
+      }
+      const failed = result.steps.find((s) => s.status === 'failed');
+      const note = failed
+        ? { kind: 'error' as const, text: `O teste parou com falha em “${failed.name}”: ${failed.message}` }
+        : result.reachedTarget
+          ? {
+              kind: 'ok' as const,
+              text: `Teste até “${target.name}” concluído com o lead de exemplo. Nada foi enviado.`,
+            }
+          : {
+              kind: 'warn' as const,
+              text: `O lead de exemplo seguiu outro caminho e não chegou a “${target.name}”. Ajuste o lead em Testar e tente de novo.`,
+            };
+      setTestNote(note);
+      setToast(note.text);
+    } catch (error) {
+      const text =
+        error instanceof ApiError && error.issues.length
+          ? `${error.message} ${error.issues.map((i) => i.message).join(' ')}`
+          : (error as Error).message;
+      setTestNote({ kind: 'error', text });
+      if (!detailNodeId) state.setError(text);
+    } finally {
+      setTestingNode(undefined);
+    }
+  };
+  testUntilRef.current = testUntil;
+  const published = state.versions.length > 0;
+  const live = state.activation.active && published;
+  const canToggle = !readOnly && state.activation.revision !== undefined;
+  const activationDisabledReason = readOnly
+    ? state.archived
+      ? 'Fluxo arquivado: restaure antes de ativar.'
+      : 'Somente proprietário ou editor pode ativar ou desativar.'
+    : !published
+      ? 'Publique uma versão para ativar este fluxo.'
+      : undefined;
+  /** Liga ou desliga o fluxo; um erro de ativação fica salvo no fluxo e aparece no cabeçalho. */
+  const setActive = async (next: boolean) => {
+    if (!canToggle || activating) return;
+    setActivating(true);
+    state.setError('');
+    try {
+      // Revisão própria do interruptor: o rascunho continua salvando com a revisão dele.
+      const result = await api<ActivationState>(`/workflows/${id}/${next ? 'activate' : 'deactivate'}`, {
+        method: 'POST',
+        body: JSON.stringify({ activationRevision: state.activation.revision }),
+      });
+      state.setActivation({
+        active: result.active,
+        error: result.activationError,
+        revision: result.activationRevision,
+      });
+      setHiddenActivationError('');
+      setToast(
+        result.active
+          ? `Fluxo ativo: a versão ${result.activeVersion?.number ?? ''} recebe eventos.`
+          : 'Fluxo inativo: nenhum gatilho cria execuções até você ativá-lo de novo.',
+      );
+    } catch (error) {
+      const saved = error instanceof ApiError ? (error.body.activationError as ActivationError | undefined) : undefined;
+      const latest = error instanceof ApiError ? (error.body.workflow as ActivationState | undefined) : undefined;
+      if (saved) {
+        state.setActivation({ active: false, error: saved, revision: latest?.activationRevision });
+        setHiddenActivationError('');
+      } else {
+        state.setError((error as Error).message);
+        // Conflito: outra aba mudou o interruptor; atualiza o estado sem tocar no rascunho.
+        if (error instanceof ApiError && error.status === 409)
+          await api<WorkflowRecordLite>(`/workflows/${id}`)
+            .then((row) =>
+              state.setActivation({
+                active: row.active ?? true,
+                error: row.activationError ?? null,
+                revision: row.activationRevision,
+              }),
+            )
+            .catch(() => {});
+      }
+    } finally {
+      setActivating(false);
+    }
+  };
+  const activationError = state.activation.error;
+  const activationErrorNode = activationError?.nodeId
+    ? flow?.nodes.find((n) => n.id === activationError.nodeId)
+    : undefined;
   const exportDraft = () => {
     const url = URL.createObjectURL(new Blob([JSON.stringify(flow, null, 2)], { type: 'application/json' }));
     const a = document.createElement('a');
@@ -1071,6 +1263,42 @@ function EditorWorkspace({ id }: { id: string }) {
             </div>
           </div>
         </div>
+        <div className="vx-modes editor-modes" role="tablist" aria-label="Modo de exibição">
+          <button
+            type="button"
+            role="tab"
+            id="editor-tab-editor"
+            aria-controls="editor-panel"
+            aria-selected={view === 'editor'}
+            tabIndex={view === 'editor' ? 0 : -1}
+            onClick={() => setView('editor')}
+            onKeyDown={tabKeys}
+          >
+            Editor
+          </button>
+          <button
+            type="button"
+            role="tab"
+            id="editor-tab-runs"
+            aria-controls="editor-panel"
+            aria-selected={view === 'runs'}
+            tabIndex={view === 'runs' ? 0 : -1}
+            onClick={() => setView('runs')}
+            onKeyDown={tabKeys}
+          >
+            Execuções
+          </button>
+        </div>
+        {state.activation.revision !== undefined && (
+        <div className="editor-activation">
+          <ActivationSwitch
+            on={live}
+            busy={activating}
+            disabledReason={activationDisabledReason}
+            onToggle={() => void setActive(!live)}
+          />
+        </div>
+        )}
         <div className="editor-actions">
           <button
             className={`save-indicator save-${state.saveStatus}`}
@@ -1159,7 +1387,7 @@ function EditorWorkspace({ id }: { id: string }) {
             title={
               state.role !== 'owner'
                 ? 'Somente o proprietário pode publicar.'
-                : 'Publica uma versão sem ativar ações externas'
+                : 'Publica uma versão imutável; se o fluxo estiver ativo, ela passa a receber eventos'
             }
           >
             <Rocket size={14} />
@@ -1182,7 +1410,48 @@ function EditorWorkspace({ id }: { id: string }) {
           )}
         </div>
       )}
+      {activationError && !live && hiddenActivationError !== activationError.at && (
+        <ActivationErrorBanner
+          error={activationError}
+          nodeName={activationErrorNode?.name}
+          busy={activating}
+          canRetry={canToggle && published}
+          onRetry={() => void setActive(true)}
+          onShowNode={
+            activationErrorNode
+              ? () => {
+                  setView('editor');
+                  setSelected([activationErrorNode.id]);
+                  setSelectedEdges([]);
+                  setInspector(true);
+                  focusCanvas(activationErrorNode.id);
+                }
+              : undefined
+          }
+          onDismiss={() => setHiddenActivationError(activationError.at)}
+        />
+      )}
+      {view === 'runs' ? (
+        <div className="editor-runs" id="editor-panel" role="tabpanel" aria-labelledby="editor-tab-runs">
+          <WorkflowRuns
+            workflowId={id}
+            versions={state.versions}
+            selectedId={realRunId}
+            onPick={(row) => {
+              playback.current++;
+              setPickedRun(row);
+              setRealRunId(row.id);
+              setSimPainted(false);
+              setShowRun(false);
+              setView('editor');
+            }}
+          />
+        </div>
+      ) : (
       <div
+        id="editor-panel"
+        role="tabpanel"
+        aria-labelledby="editor-tab-editor"
         className={`editor-workspace ${library ? 'library-open' : ''} ${inspector ? 'inspector-open' : ''}`}
       >
         <aside className="block-library" aria-label="Biblioteca de blocos">
@@ -1386,7 +1655,9 @@ function EditorWorkspace({ id }: { id: string }) {
                     </span>
                     <span className="vx-run-long">
                       {canvasRun.source === 'simulation'
-                        ? 'Exibindo a simulação desta sessão'
+                        ? run?.targetNodeId
+                          ? `Exibindo o teste até “${flow.nodes.find((n) => n.id === run.targetNodeId)?.name ?? 'bloco'}”${run.reachedTarget ? '' : ' · bloco não alcançado'}`
+                          : 'Exibindo a simulação desta sessão'
                         : `Exibindo a execução real${shownReal?.leadSummary?.name ? ` de ${shownReal.leadSummary.name}` : ''} · ${stepStatusLabel(shownReal?.status ?? '')}${versionNote}`}
                     </span>
                     <button type="button" onClick={clearCanvasRun} aria-label="Limpar execução do canvas">
@@ -1539,12 +1810,7 @@ function EditorWorkspace({ id }: { id: string }) {
               Histórico real: {realRunError}
             </p>
           )}
-          {realRunId && realRuns.find((r) => r.id === realRunId) && (
-            <RunLog
-              run={{ ...realRuns.find((r) => r.id === realRunId)!, mode: 'real' }}
-              onClose={clearCanvasRun}
-            />
-          )}
+          {shownReal && <RunLog run={{ ...shownReal, mode: 'real' }} onClose={clearCanvasRun} />}
           {run && showRun && <RunLog run={run} onClose={() => setShowRun(false)} />}
         </div>
         {inspector && !detailNode && (
@@ -1561,6 +1827,7 @@ function EditorWorkspace({ id }: { id: string }) {
           />
         )}
       </div>
+      )}
       {detailNode && (
         <Dialog
           title={`Detalhes do bloco: ${detailNode.name}`}
@@ -1591,18 +1858,43 @@ function EditorWorkspace({ id }: { id: string }) {
                   <option value="">Nenhuma execução selecionada</option>
                   {run && (
                     <option value="simulation">
-                      Simulação desta sessão · {new Date(run.createdAt).toLocaleString('pt-BR')}
+                      {run.targetNodeId ? 'Teste até um bloco' : 'Simulação desta sessão'} ·{' '}
+                      {new Date(run.createdAt).toLocaleString('pt-BR')}
                     </option>
                   )}
-                  {realRuns.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      Execução real · {new Date(item.createdAt).toLocaleString('pt-BR')} ·{' '}
-                      {stepStatusLabel(item.status)}
-                    </option>
-                  ))}
+                  {[...realRuns, ...(pickedRun && !realRuns.some((r) => r.id === pickedRun.id) ? [pickedRun] : [])].map(
+                    (item) => (
+                      <option key={item.id} value={item.id}>
+                        Execução real · {new Date(item.createdAt).toLocaleString('pt-BR')} ·{' '}
+                        {stepStatusLabel(item.status)}
+                      </option>
+                    ),
+                  )}
                 </select>
+                {!readOnly && (
+                  <div className="flow-detail-test">
+                    <Button
+                      onClick={() => void testUntil(detailNode.id)}
+                      disabled={!!testingNode}
+                      title="Roda a simulação só até este bloco, com o lead de exemplo. Nada é enviado."
+                    >
+                      {testingNode === detailNode.id ? (
+                        <LoaderCircle size={14} className="spin" />
+                      ) : (
+                        <StepForward size={14} />
+                      )}
+                      Testar até este bloco
+                    </Button>
+                    {testNote && (
+                      <p role={testNote.kind === 'error' ? 'alert' : 'status'} className={`flow-test-note ${testNote.kind}`}>
+                        {testNote.text}
+                      </p>
+                    )}
+                  </div>
+                )}
                 {detailRun && detailSource === 'simulation' && (
                   <p>
+                    {run?.targetNodeId ? 'Teste até um bloco: só o trecho até ele foi percorrido. ' : ''}
                     Os dados refletem o fluxo no momento da simulação e podem diferir das alterações
                     posteriores.
                   </p>
@@ -1750,8 +2042,11 @@ function EditorWorkspace({ id }: { id: string }) {
             <div>
               <strong>Publicar e executar são etapas diferentes.</strong>
               <p>
-                Nesta entrega, a publicação preserva a versão. Não ativa automações nem dispara ações
-                externas. Use Testar para simular um evento.
+                {state.activation.active ? 'O fluxo está ativo. ' : 'O fluxo está inativo. '}
+                {state.activation.active
+                  ? 'Depois de publicar, os próximos eventos (lead pela API, webhook, mensagem de WhatsApp) usam esta versão. Para pausar, desligue o interruptor “Ativo”.'
+                  : 'A versão fica guardada, mas nenhum gatilho cria execuções até você ligar o interruptor “Ativo”.'}{' '}
+                Use Testar para simular sem efeitos externos.
               </p>
             </div>
           </div>
@@ -1891,7 +2186,9 @@ function EditorWorkspace({ id }: { id: string }) {
             Shift + arrastar seleciona vários blocos. Ctrl D duplica. Delete exclui. Ctrl Z desfaz. As
             alterações são salvas automaticamente no servidor. No detalhe do bloco (duplo clique), as teclas{' '}
             {detailShortcut} vão para o bloco anterior e o próximo, fora dos campos de texto; arraste um campo
-            da Entrada até um parâmetro de texto para inserir a variável.
+            da Entrada até um parâmetro de texto para inserir a variável. “Testar até este bloco” (na barra do
+            bloco e no detalhe) simula só o trecho até ele, sem enviar nada. O interruptor “Ativo” liga ou desliga
+            todos os gatilhos do fluxo; a aba Execuções lista as execuções reais e mostra a escolhida no canvas.
           </div>
         </Dialog>
       )}

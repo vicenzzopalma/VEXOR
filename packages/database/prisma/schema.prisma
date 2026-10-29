@@ -113,6 +113,13 @@ model Workflow {
   draft          Json
   revision       Int               @default(1)
   archivedAt     DateTime?
+  /// Ativo: a versão publicada mais recente recebe eventos. Inativo: nenhum gatilho cria execução.
+  active          Boolean          @default(true)
+  /// Último erro de ativação ({ code, message, action, at }); só existe com o fluxo inativo.
+  activationError Json?
+  activeChangedAt DateTime?
+  /// Revisão otimista só do interruptor (não conflita com o salvamento do rascunho).
+  activationRevision Int          @default(1)
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   versions       WorkflowVersion[]
@@ -148,6 +155,9 @@ model Simulation {
   snapshot       Json
   steps          Json
   status         String
+  /// Testar até este bloco: bloco-alvo e se o lead chegou até ele (nulos na simulação completa).
+  targetNodeId   String?
+  reachedTarget  Boolean?
   createdAt      DateTime @default(now())
 
   @@index([workflowId, createdAt])

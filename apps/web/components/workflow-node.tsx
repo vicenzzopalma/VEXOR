@@ -9,6 +9,7 @@ import {
   LoaderCircle,
   Minus,
   PanelRightOpen,
+  StepForward,
   Trash2,
   X,
   Zap,
@@ -25,6 +26,9 @@ export type FlowNode = Node<
     invalid?: boolean;
     readOnly?: boolean;
     onOpen?: () => void;
+    /** Testar até este bloco: simulação parcial com o lead de exemplo (sem efeitos externos). */
+    onTestUntil?: () => void;
+    testing?: boolean;
     onDuplicate?: () => void;
     onDelete?: () => void;
   },
@@ -128,6 +132,22 @@ export function WorkflowBlock({ data, selected }: NodeProps<FlowNode>) {
         </button>
         {!data.readOnly && (
           <>
+            <button
+              type="button"
+              aria-label={`Testar até ${node.name}`}
+              title="Testar até este bloco (simulação, nada é enviado)"
+              disabled={data.testing}
+              onClick={(event) => {
+                event.stopPropagation();
+                data.onTestUntil?.();
+              }}
+            >
+              {data.testing ? (
+                <LoaderCircle size={14} className="spin" aria-hidden="true" />
+              ) : (
+                <StepForward size={14} aria-hidden="true" />
+              )}
+            </button>
             <button
               type="button"
               aria-label={`Duplicar ${node.name}`}

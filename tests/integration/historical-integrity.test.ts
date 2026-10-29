@@ -346,7 +346,7 @@ describe('Fase 5.2 — Integridade Histórica e Preservação de Versões', () =
     const parsed = JSON.parse(output.trim());
     expect(parsed).toMatchObject({
       database: 'eimax_phase52_migration_replay',
-      migrations: 19,
+      migrations: 20,
       schemaDiffEmpty: true,
       applicationDatabaseReset: false,
     });

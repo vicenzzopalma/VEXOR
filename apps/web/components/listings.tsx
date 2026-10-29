@@ -625,7 +625,15 @@ export function RunList({ projectId }: { projectId?: string } = {}) {
                   {row.steps.filter((s) => s.status === 'success').length} etapas concluídas
                 </p>
               </div>
-              <span className="success-pill">{row.status === 'success' ? 'Concluída' : 'Falha'}</span>
+              <span className="success-pill">
+                {row.status !== 'success'
+                  ? 'Falha'
+                  : row.targetNodeId
+                    ? row.reachedTarget
+                      ? 'Parcial: até um bloco'
+                      : 'Parcial: bloco não alcançado'
+                    : 'Concluída'}
+              </span>
               <Button onClick={() => setSelected({ ...row, mode: 'simulation' })}>
                 Consultar resultado <ArrowRight size={12} />
               </Button>
